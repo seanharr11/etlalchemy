@@ -1,3 +1,9 @@
 1.) Install cx_Oracle and Test
 2.) Create Oracle 9i Branch
-3.) Figure out FK compatability (what happens if you add an FK to a column w/ violations?)
+3.) Check to see if FK exists between 2 tables - if it does, append an integer to the end of the constraint_name.
+Right now we just catch exceptions (OperationalError - MySQL, ProgrammingError - PostgreSQL)
+4.) Add *fast* loads (i.e. mysql.dump files, etc..)
+    a.) Is this just the shitty cloud services DBs that I'm using?
+    b.) Is this a result of the composite primary keys?
+5.) Replace column-type guessing process (iterating over every row)  with a GROUP BY query.
+6.) Allow composite primary keys

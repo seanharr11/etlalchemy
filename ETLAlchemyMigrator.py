@@ -1,3 +1,5 @@
+from literalquery import literalquery
+from literalquery_two import printquery
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
 from datetime import datetime
@@ -23,9 +25,39 @@ import inspect as ins
 import re
 import csv
 from schema_transformer import SchemaTransformer
+import os
 
+# Parse the connection_string to find relevant info for each db engine #
+
+def sendData(engine):
+    if engine.dialect.name.lower() == "mssql":
+        username = engine.url.username
+        password = engine.url.password
+        dsn = engine.url.host
+        db_name = list(engine.execute("SELECT DB_NAME()").fetchall())[0][0]
+        os.system("cat payload.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name))    
+        os.system("rm payload.sql")
+    elif engine.dialect.name.lower() == "mysql":
+        username = engine.url.username
+        password = engine.url.password
+        db_name = engine.url.database
+        host = engine.url.host
+        os.system("cat payload.sql | mysql -h{0} -u{1} -p{2} {3}".format(host, username, password, db_name)) 
+        #TODO: Take advantage of "mysqlimport -compress"
+        #os.system("mysqlimport -h{0} -u{1} -p{2} --compress 
+        os.system("rm payload.sql")
+    elif engine.dialect.name.lower() == "postgresql":
+        #TODO: Take advantage of psql> COPY FROM <payload.sql> WITH DELIMITER AS ","
+        username = engine.url.username
+        password = engine.url.password
+        db_name = engine.url.database
+        host = engine.url.host
+        os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
+        os.system("rm payload.sql")
+    else:
+        raise Exception("Not Implemented!")
 """
-    Each ETLAlchemyMigrator instance handles the migration from a SQL DB source.
+    Each ETLAlchemyMigrator instance handles the migration from 1 single SQL DB source.
     When created, it is agnostic of its destination. The destination is passed to
     the "migrate" function, so once the object is created, it can be sent to multiple
     databases. Likewise, many of these instances can be created, with each instance
@@ -33,6 +65,7 @@ from schema_transformer import SchemaTransformer
     all previously fragmented DBs.
 
 """
+
 class ETLAlchemyMigrator():
    def __init__(self,\
                  url,\
@@ -64,7 +97,7 @@ class ETLAlchemyMigrator():
                                                   table_transform_file=table_schema_transformation_file,\
                                                   global_renamed_col_suffixes=global_renamed_col_suffixes)
 
-   
+       self.dst_engine = None   
        self.constraints = {}
        self.indexes = {}
        self.fks = {}
@@ -97,7 +130,7 @@ class ETLAlchemyMigrator():
        self.fkCount = 0
        self.skippedFKCount = 0
        # Config
-       self.checkReferentialIntegrity = True
+       self.checkReferentialIntegrity = False
        self.riv_arr = []
        self.start = datetime.now()
    
@@ -121,7 +154,18 @@ class ETLAlchemyMigrator():
        ### database-vendor specific column types
        ##############################
        base_classes = map(lambda c: c.__name__, column.type.__class__.__bases__)
-       if "String" in base_classes:
+       
+       if "Enum" in base_classes:
+           # Hack for error 'postgresql enum type requires a name'
+           if self.dst_engine.dialect.name.lower() == "postgresql":
+               self.logger.info(dir(column.type))
+               self.logger.info(str(column))
+               column_copy.type = column.type
+               # Name the enumeration 'table_column'
+               column_copy.type.name = str(column).replace(".", "_")
+           else:
+               column_copy.type = column.type
+       elif "String" in base_classes:
            #########################################
            ### Get the VARCHAR size of the column...
            ######################################## 
@@ -321,7 +365,7 @@ class ETLAlchemyMigrator():
         self.schemaTransformer.transform_rows(raw_rows, T_src.name)
        
         
-   def createTable(self, T_dst_exists, T, dst_engine):
+   def createTable(self, T_dst_exists, T):
         if not T_dst_exists:    
             self.logger.info(" --> Creating table '{0}'".format(T.name))
             try:
@@ -332,7 +376,7 @@ class ETLAlchemyMigrator():
                 return False
         else:
             self.logger.warning("Table '{0}' already exists - not creating table, reflecting to get new changes instead..".format(T.name))
-            insp = inspect(dst_engine)
+            insp = inspect(self.dst_engine)
             insp.reflecttable(T, None)
             return True
             # We need to Upsert the data...
@@ -341,49 +385,56 @@ class ETLAlchemyMigrator():
       Load the data from source to destination for table "T" 
       given buffer of rows, "raw_rows".
    """
-   def loadData(self, T_dst_exists, T, dst_engine, raw_rows, pks):
-        m = MetaData()
-        m.reflect(dst_engine)
-       
-        insp = inspect(dst_engine)
-        insp.reflecttable(T, None)
+   def loadData(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
+        
         """"""""""""""""""""
         """ *** LOAD *** """
         """"""""""""""""""""
         t_start_load = datetime.now()
-        conn = dst_engine.connect()
+        conn = self.dst_engine.connect()
+        s = sessionMaker(bind=conn)
         if not T_dst_exists:
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
-           conn.execute(T.insert(), raw_rows)
+           #s.bulk_insert_mappings(myBase.classes[T.name], raw_rows)
+           #conn.execute(T.insert(), raw_rows)
+           with open("payload.sql", "a+") as fp:
+               fp.write(printquery(T.insert().values(raw_rows), self.dst_engine, T.name))
         else:
            ########################################
            #### We need to upsert the data...prepare upsertDict...
            ########################################
            upsertDict = {}
+           self.logger.info("Gathering unique columns for upsert.")
            if len(pks) == 0:
                s = "There is no primary key defined on table '{0}'! We are unable to Upsert into this table without identifying unique rows!"
                raise Exception(s)
-           unique_columns = tuple(filter(lambda c: c.name.lower() in pks, T.columns))
-           rows = dst_engine.execute(T.select(*columns)).fetchall()
+           unique_columns = filter(lambda c: c.name.lower() in pks, T.columns)
+           self.logger.info("Unique columns are '{0}'".format(str(unique_columns)))
+           q = select(unique_columns)
+           rows = conn.execute(q).fetchall()
            for r in rows:
                uid = ""
                for pk in pks:
-                   uid += getattr(row, pk)
+                   uid += str(getattr(r, pk))
                upsertDict[uid] = True
            ################################
            ### Now upsert each row...
            ################################
            self.logger.info("Upserting " + str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
-           for r in list(raw_rows):
+          
+           init_len = len(raw_rows)
+           for r in range(init_len-1, -1, -1):
                uid = ""
+               row = raw_rows[r]
                for pk in pks:
-                   uid += getattr(row, pk)
+                   uid += str(row[pk])
                if upsertDict.get(uid):
-                   dst_engine.execute(T.update()\
-                           .where(*tuple(map(lambda pk: T.columns[pk] == r[pk], pks)))\
-                           .values(r))
-                   raw_rows.remove(r)
+                   with open("payload.sql", "a+") as fp:
+                       fp.write(printquery((T.update()\
+                               .where(and_(*tuple(map(lambda pk: T.columns[pk] == row[pk], pks))))\
+                               .values(row)), self.dst_engine, T.name))
+                   del raw_rows[r]
            #################################
            ### Insert the remaining rows...
            #################################
@@ -392,7 +443,8 @@ class ETLAlchemyMigrator():
            raw_row_len = len(raw_rows)
            if len(raw_rows) > 0:
                self.logger.info(" ({0}) -- Inserting remaining '{0}' rows.".format(str(raw_row_len)))
-               dst_engine.execute(T.insert().values(raw_rows))
+               with open("payload.sql", "a+") as fp:
+                   fp.write(printquery(T.insert().values(raw_rows), self.dst_engine, T.name))
         conn.close()
    ## TODO: Have a 'Create' option for each table... 
    def migrate(self, destination_database_url, load_data=False, load_schema=False):
@@ -403,11 +455,11 @@ class ETLAlchemyMigrator():
        self.insp = reflection.Inspector.from_engine(self.engine)
        self.table_names = self.insp.get_table_names()
        
-       dst_engine = create_engine(destination_database_url)
+       self.dst_engine = create_engine(destination_database_url)
        dst_meta = MetaData()
        
-       Session = sessionmaker(bind=dst_engine)
-       dst_meta.bind = dst_engine
+       Session = sessionmaker(bind=self.dst_engine)
+       dst_meta.bind = self.dst_engine
 
        oracle_dialects = zip(*ins.getmembers(sqlalchemy.dialects.oracle, ins.isclass))[1]
        TablesIterator = self.table_names #defaults to ALL tables
@@ -450,7 +502,7 @@ class ETLAlchemyMigrator():
                ### Check if DST table exists...
                ###############################
                T_dst_exists = True
-               insp = inspect(dst_engine)
+               insp = inspect(self.dst_engine)
                try:
                    insp.reflecttable(T, None)
                except sqlalchemy.exc.NoSuchTableError as e:
@@ -489,10 +541,11 @@ class ETLAlchemyMigrator():
                    """ *** ELIMINATION I *** """
                    """"""""""""""""""""""""""""""
                    self.addOrEliminateColumn(T, T_dst_exists, column, column_copy, raw_rows)
-               #######################################
-               #### Remove auto-inc on composite PK's
-               #######################################
-               self.checkMultipleAutoincrementIssue(auto_inc_count, pk_count, T)
+               if self.dst_engine.dialect.name.lower() == "mysql":
+                   #######################################
+                   #### Remove auto-inc on composite PK's
+                   #######################################
+                   self.checkMultipleAutoincrementIssue(auto_inc_count, pk_count, T)
                if self.transformTable(T) == None:
                    #Skip the table, it is scheduled to be deleted...
                    continue
@@ -508,7 +561,7 @@ class ETLAlchemyMigrator():
                    self.emptyTables.append(T.name)
                    continue
                else:
-                   tableCreationSuccess = self.createTable(T_dst_exists, T, dst_engine)
+                   tableCreationSuccess = self.createTable(T_dst_exists, T)
                    if not tableCreationSuccess:
                        continue
                t_start_clean = datetime.now()
@@ -517,29 +570,49 @@ class ETLAlchemyMigrator():
                """"""""""""""""""""""""""""""
                """" *** INSERT ROWS *** """""
                """"""""""""""""""""""""""""""
-               dst_meta.reflect(dst_engine)
+               dst_meta.reflect(self.dst_engine)
+               insp = inspect(self.dst_engine)
+               insp.reflecttable(T, None)
                if load_data == True:
                    self.logger.info("Transforming & Inserting "+ str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
-                   # Create buffers of "1000" rows
-                   #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
-                   insertionCount = (len(raw_rows) / 1000) + 1
-                   raw_row_len = len(raw_rows)
-                   if len(raw_rows) > 0:
-                       for i in range(0, insertionCount):
-                           startRow = 0  #i * 1000
-                           endRow = 1000 #(i+1) * 1000 
-                           virtualStartRow = i * 1000
-                           virtualEndRow = (i+1) * 1000
-                           if virtualEndRow > raw_row_len:
-                               virtualEndRow = raw_row_len
-                               endRow = raw_row_len
-                           self.logger.info(" ({0}) -- TRANSFORMING rows: ".format(T.name) + str(virtualStartRow) + \
-                                    " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
-                           self.transformData(T_src, raw_rows[startRow:endRow])
-                           self.logger.info(" ({0}) -- INSERTING rows: ".format(T.name) + str(virtualStartRow) + \
-                                    " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
-                           self.loadData(T_dst_exists, T, dst_engine, raw_rows[startRow:endRow], pks)
-                           del raw_rows[startRow:endRow]
+                   if self.dst_engine.dialect.name.lower() == "oracle":
+                       ##################################
+                       ### No Bulk Insert available in Oracle
+                       ##################################
+                       #TODO: Investigate "sqlldr" CLI utility to handle this load...
+                       self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time...")
+                       with open("payload.sql", "a+") as fp:
+                           for i in range(0, len(raw_rows)):
+                               if i % 10000 == 0:
+                                   self.logger.info("Wrote '{0}' rows to 'payload.sql'".format(str(i)))
+                               fp.write(printquery(T.insert().values(raw_rows[i]), self.dst_engine, T.name))
+                   else:
+                       # Create buffers of "1000" rows
+                       #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
+                       insertionCount = (len(raw_rows) / 1000) + 1
+                       raw_row_len = len(raw_rows)
+                       if len(raw_rows) > 0:
+                           for i in range(0, insertionCount):
+                               startRow = 0  #i * 1000
+                               endRow = 1000 #(i+1) * 1000 
+                               virtualStartRow = i * 1000
+                               virtualEndRow = (i+1) * 1000
+                               if virtualEndRow > raw_row_len:
+                                   virtualEndRow = raw_row_len
+                                   endRow = raw_row_len
+                               self.logger.info(" ({0}) -- TRANSFORMING rows: ".format(T.name) + str(virtualStartRow) + \
+                                        " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
+                               self.transformData(T_src, raw_rows[startRow:endRow])
+                               self.logger.info(" ({0}) -- INSERTING rows: ".format(T.name) + str(virtualStartRow) + \
+                                        " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
+                                 
+                               self.loadData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
+                               del raw_rows[startRow:endRow]
+                   ################################################################
+                   ### Now *actually* load the data via fast-CLI utilities
+                   ################################################################
+                   sendData(self.dst_engine) # From payload.sql
+
                t_stop_load = datetime.now()
                
                    
@@ -565,10 +638,9 @@ class ETLAlchemyMigrator():
            
    def add_indexes(self, destination_database_url):
        dst_meta = MetaData()
-       dst_engine = create_engine(destination_database_url)
-       dst_meta.reflect(bind=dst_engine)
-       dst_meta.bind = dst_engine
-       Session = sessionmaker(bind=dst_engine)
+       dst_meta.reflect(bind=self.dst_engine)
+       dst_meta.bind = self.dst_engine
+       Session = sessionmaker(bind=self.dst_engine)
        """"""""""""""""""""
        """ *** INDEX *** """
        """"""""""""""""""""
@@ -593,11 +665,15 @@ class ETLAlchemyMigrator():
            this_idx_count = 0               
            self.logger.info("Creating indexes for '" + table_name +  "'...")
            for i in indexes:
+
                self.totalIndexes += 1
                session = Session()
                col = i['column_names']
                unique = i['unique']
-               name = i['name']
+               # Name the index something compatible across all databases 
+               #(i.e. can't create Index w/ same name as column in Postgresql)
+               name = "IDX_" + table_name + "__" + "_".join(col) + "__" + str(this_idx_count) 
+               #number prefix guarentees uniqueness (i.e. if multiple idx's on one column)
                cols = ()
                continueFlag = False
                self.logger.info("Checking validity of data indexed by: '{0}' (column = '{1}' - table = '{2}')".format(name, str(col), table_name))
@@ -623,7 +699,9 @@ class ETLAlchemyMigrator():
                if continueFlag == True:
                    self.skippedIndexCount += 1
                    continue #Don't create this Index - the table/column don't exist!
+               
                I = Index(name, *cols, unique=unique)
+                       
                violationCount = 0
                if unique == True:
                    ############################################
@@ -647,7 +725,7 @@ class ETLAlchemyMigrator():
                    self.logger.info("Adding Index: " + str(I))
                    session.close()
                    try:
-                       I.create(dst_engine)
+                       I.create(self.dst_engine)
                    except sqlalchemy.exc.OperationalError as e:
                        self.logger.warning(str(e) + " -- it is likely that the Index already exists...")
                        self.skippedIndexCount += 1
@@ -667,10 +745,12 @@ class ETLAlchemyMigrator():
        ### Add FKs 
        ############################
        dst_meta = MetaData()
-       dst_engine = create_engine(destination_database_url)
-       dst_meta.reflect(bind=dst_engine)
-       dst_meta.bind = dst_engine 
-       Session = sessionmaker(bind=dst_engine)
+       if self.dst_engine.dialect.name.lower() == "mssql":
+           raise NotImplemented(\
+                   "Adding Constraints to MSSQL is not supported by sqlalchemy_migrate...")
+       dst_meta.reflect(bind=self.dst_engine)
+       dst_meta.bind = self.dst_engine 
+       Session = sessionmaker(bind=self.dst_engine)
        ##########################
        ### HERE BE HACKS!!!!
        ##########################
@@ -695,12 +775,14 @@ class ETLAlchemyMigrator():
        """""""""""""""""""""
        "" ** CONSTRAIN ** ""
        """""""""""""""""""""
-       if dst_engine.dialect.name.upper() == "MYSQL":
-           dst_engine.execute("SET foreign_key_checks = 0")
+       if self.dst_engine.dialect.name.upper() == "MYSQL":
+           self.dst_engine.execute("SET foreign_key_checks = 0")
+       elif self.dst_engine.dialect.name.upper() == "POSTGRESQL":
+           self.logger.warning("Can't disable foreign key checks on POSTGRSQL")
        else:
-           raise NotImpelemented("Only foreign key sync 'TO' MySQL is current supported")
+           self.logger.warning("Can't disable foreign key checks...")
        
-       inspector = inspect(dst_engine)
+       inspector = inspect(self.dst_engine)
        for table_name in self.fks.keys():
            pre_transformed_table_name = table_name
            t_start_constraint = datetime.now()
@@ -797,7 +879,7 @@ class ETLAlchemyMigrator():
                ### Check for referential integrity violations
                ##################################                   
                if self.checkReferentialIntegrity == True:
-                  if dst_engine.dialect.name.upper() in ["MYSQL", "POSTGRESQL"]: # HACKS
+                  if self.dst_engine.dialect.name.upper() in ["MYSQL", "POSTGRESQL"]: # HACKS
                       self.logger.info("Checking referential integrity of '" + str(table_name) + "." + str(constrained_columns) + " -> '" + str(T_ref.name) + "." + str(ref_columns) + "'")
                       t = session.query(T_ref.columns.get(referred_columns[0].name))
                       query2 = session.query(T)
@@ -823,9 +905,9 @@ class ETLAlchemyMigrator():
                cnt = 0
                while not creation_succesful:
                    try:
-                       cons.create(dst_engine)
+                       cons.create(self.dst_engine)
                        creation_succesful = True
-                   except sqlalchemy.exc.OperationalError as e:
+                   except sqlalchemy.exc.OperationalError as e: #MySQL Exception
                        self.logger.warning(str(e) + "\n ---> an FK on this table already references the ref_table...appending '{0}' to FK's name and trying again...".format(str(cnt)))
                        cons = ForeignKeyConstraint(name=constraint_name + "_{0}".format(str(cnt)),columns=constrained_cols, refcolumns=referred_columns, table=T)
                        cnt += 1
@@ -833,7 +915,15 @@ class ETLAlchemyMigrator():
                            self.logger.error("FK creation was unsuccesful (surpassed max number of FKs on 1 table which all reference another table)")
                            self.skippedFKCount += 1
                            break
-                
+                   except sqlalchemy.exc.ProgrammingError as e: # PostgreSQL Exception
+                       self.logger.warning(str(e) + "\n ---> an FK on this table already references the ref_table...appending '{0}' to FK's name and trying again...".format(str(cnt)))
+                       cons = ForeignKeyConstraint(name=constraint_name + "_{0}".format(str(cnt)),columns=constrained_cols, refcolumns=referred_columns, table=T)
+                       cnt += 1
+                       if cnt == max_fks:
+                           self.logger.error("FK creation was unsuccesful (surpassed max number of FKs on 1 table which all reference another table)")
+                           self.skippedFKCount += 1
+                           break
+
                self.fkCount += 1
            t_stop_constraint = datetime.now()
            constraint_dt = t_stop_constraint - t_start_constraint
