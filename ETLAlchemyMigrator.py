@@ -161,10 +161,11 @@ class ETLAlchemyMigrator():
                self.logger.info(dir(column.type))
                self.logger.info(str(column))
                column_copy.type = column.type
+               column_copy.type.__class__ = column.type.__class__.__bases__[0]
                # Name the enumeration 'table_column'
                column_copy.type.name = str(column).replace(".", "_")
            else:
-               column_copy.type = column.type
+               column_copy.type.__class__ = column.type.__class__.__bases__[0]
        elif "String" in base_classes:
            #########################################
            ### Get the VARCHAR size of the column...
