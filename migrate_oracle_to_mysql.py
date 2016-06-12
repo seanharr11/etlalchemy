@@ -21,11 +21,11 @@ migrator = ETLAlchemyMigrator("mysql://root:Pats15Ball@localhost/employees",\
         dill_mapper_file=None,\
         )
 #dest = "sqlite:///foo.db"
-#dest = "oracle+cx_oracle://seanmon11:carousel13@etlalchemyoracle.cilwasbzice0.us-east-1.rds.amazonaws.com:1521/ORCL"
+dest = "oracle+cx_oracle://seanmon11:carousel13@etlalchemyoracle.cilwasbzice0.us-east-1.rds.amazonaws.com:1521/ORCL"
 #dest = "mysql://seanmon11:carousel13@etlalchemymysql.cilwasbzice0.us-east-1.rds.amazonaws.com/testing"
 #dest = "postgresql://seanmon11:carousel13@etlalchemy.cilwasbzice0.us-east-1.rds.amazonaws.com/testing"
 #dest = "postgresql://SeanH:Pats15Ball@localhost/test"
-dest = "mssql+pyodbc://seanmon11:CAR0usel134182@AZUREMSSQL"
+#dest = "mssql+pyodbc://seanmon11:CAR0usel134182@AZUREMSSQL"
 
 #dest = "mssql+pyodbc://seanmon11:CAR0usel134182@191.238.6.43/test"
 

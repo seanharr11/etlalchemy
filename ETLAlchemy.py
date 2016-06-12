@@ -1,5 +1,5 @@
 from sqlalchemy_utils import database_exists, create_database, drop_database
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 import dill
 import logging
 
@@ -38,10 +38,18 @@ class ETLAlchemy():
             ############################
             if dst_engine.dialect.name.upper() == "MSSQL":
                 db_name = list(dst_engine.execute("SELECT DB_NAME()").fetchall())[0][0]
-                self.logger.warning("Can't drop database {0} on MSSQL...".format(db_name))
+                self.logger.warning("Can't drop database {0} on MSSQL, dropping tables instead...".format(db_name))
+                m = MetaData()
+                m.bind = dst_engine
+                m.reflect()
+                m.drop_all()
             elif dst_engine.dialect.name.upper() == "ORACLE":
                 db_name = list(dst_engine.execute("SELECT SYS_CONTEXT('userenv','db_name') FROM DUAL").fetchall())[0][0]
-                self.logger.warning("Can't drop database {0} on ORACLE...".format(db_name))
+                self.logger.warning("Can't drop database {0} on ORACLE, dropping tables instead...".format(db_name))
+                m = MetaData()
+                m.bind = dst_engine
+                m.reflect()
+                m.drop_all()
             else:
                 if dst_engine.url and database_exists(dst_engine.url):
                     self.logger.warning(dst_engine.url)
@@ -56,6 +64,6 @@ class ETLAlchemy():
             self.logger.info("Syncing migrator '" + str(migrator) + "' to destination '" + str(self.destination) + "'")
             migrator.migrate(self.destination, load_schema=True, load_data=True)
             migrator.add_indexes(self.destination)
-            migrator.add_fks(self.destination)
+            #migrator.add_fks(self.destination)
             migrator.print_timings()
 

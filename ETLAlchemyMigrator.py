@@ -1,5 +1,5 @@
 from literalquery import literalquery
-from literalquery_two import printquery
+from literalquery_two import printquery, render_literal_value
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
 from datetime import datetime
@@ -461,7 +461,6 @@ class ETLAlchemyMigrator():
        Session = sessionmaker(bind=self.dst_engine)
        dst_meta.bind = self.dst_engine
 
-       oracle_dialects = zip(*ins.getmembers(sqlalchemy.dialects.oracle, ins.isclass))[1]
        TablesIterator = self.table_names #defaults to ALL tables
        
        if self.included_tables and self.excluded_tables:
@@ -580,12 +579,39 @@ class ETLAlchemyMigrator():
                        ### No Bulk Insert available in Oracle
                        ##################################
                        #TODO: Investigate "sqlldr" CLI utility to handle this load...
-                       self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time...")
+                       self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
+                       columns = map(lambda c: c.name, T.columns)
+                       raw_rows_lists = map(lambda row: \
+                                                   map(lambda c: render_literal_value(row[c], self.dst_engine.dialect, None), columns), raw_rows)
+                       if os.path.exists("payload.sql"):
+                           os.remove("payload.sql")
+                       
                        with open("payload.sql", "a+") as fp:
-                           for i in range(0, len(raw_rows)):
-                               if i % 10000 == 0:
-                                   self.logger.info("Wrote '{0}' rows to 'payload.sql'".format(str(i)))
-                               fp.write(printquery(T.insert().values(raw_rows[i]), self.dst_engine, T.name))
+                           fp.write("INSERT INTO {0} (".format(T.name) +\
+                                   ",".join(columns) + ") WITH column_values as (\n")#INSERT INTO table (column1,column2,column3)
+                           for i in range(0, len(raw_rows_lists)):
+                               if i % 1000 == 0 and i != 0: #Skip the first row...
+                                   self.logger.info("Inserted '{0}' rows.".format(str(i)))
+                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL) SELECT * FROM column_values")
+                                   fp.seek(0)
+                                   insert_statement = fp.read()
+                                   self.dst_engine.execute(insert_statement)
+                                   fp.truncate(0) # Logically truncate the file                                   
+                                   fp.seek(0) # Reset fp to begining of file
+                                   fp.write("INSERT INTO {0} (".format(T.name) +\
+                                            ",".join(columns) + ") WITH column_values as (") #INSERT INTO table (column1,column2,column3)
+                               elif i == (len(raw_rows_lists) - 1): #Last row...
+                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL) SELECT * FROM column_values")
+                                   fp.seek(0)
+                                   insert_statement = fp.read()
+                                   self.logger.info(insert_statement)
+                                   self.dst_engine.execute(insert_statement)
+                                   os.system("rm payload.sql") #TODO: Use utilities to rm the file, not system calls (not abstract or platform-independent)
+                                   self.logger.info("Inserted '{0}' rows.".format(str(i)))
+                               else:
+                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL UNION ALL\n")
+                           # Insert the last rows...           
+                           #self.dst_engine.execute(T.insert().values(raw_rows[i]))
                    else:
                        # Create buffers of "1000" rows
                        #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
@@ -608,10 +634,10 @@ class ETLAlchemyMigrator():
                                  
                                self.loadData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
                                del raw_rows[startRow:endRow]
-                   ################################################################
-                   ### Now *actually* load the data via fast-CLI utilities
-                   ################################################################
-                   sendData(self.dst_engine) # From payload.sql
+                       ################################################################
+                       ### Now *actually* load the data via fast-CLI utilities
+                       ################################################################
+                       sendData(self.dst_engine) # From payload.sql
 
                t_stop_load = datetime.now()
                
@@ -746,7 +772,7 @@ class ETLAlchemyMigrator():
        ############################
        dst_meta = MetaData()
        if self.dst_engine.dialect.name.lower() == "mssql":
-           raise NotImplemented(\
+           raise Exception(\
                    "Adding Constraints to MSSQL is not supported by sqlalchemy_migrate...")
        dst_meta.reflect(bind=self.dst_engine)
        dst_meta.bind = self.dst_engine 
