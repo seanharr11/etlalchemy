@@ -3,7 +3,7 @@ Extract, Transform and Load...Migrate any SQL Database with 4 Lines of Code.
 
 # Basic Usage
 ```python
-from etlalchemy import ETLAlchemy, ETLAlchemyMigrator
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
 mssql_db_source = ETLAlchemySource("mssql+pyodbc://username:password@DSN_NAME")
 
