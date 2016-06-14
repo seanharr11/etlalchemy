@@ -1,5 +1,5 @@
-# ETL-sqlalchemy
-Extract, Transform and Load...Any SQL Database with 4 Lines of Code.
+# etl-alchemy
+Extract, Transform and Load...Migrate any SQL Database with 4 Lines of Code.
 
 # Basic Usage
 ```python
