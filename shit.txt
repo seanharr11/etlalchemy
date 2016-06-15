@@ -1,2 +1,0 @@
-helloworld,1
-shitbag,2
