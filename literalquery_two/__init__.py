@@ -2,7 +2,7 @@ import decimal
 import datetime
 
 
-def render_literal_value(value, dialect, type_):
+def render_literal_value_global(value, dialect, type_):
     """Render the value of a bind parameter as a quoted literal.
 
     This is used for statement sections that do not accept bind paramters
@@ -30,6 +30,11 @@ def render_literal_value(value, dialect, type_):
             return "to_date('%s', 'YYYY-MM-DD HH24:MI:SS')" % value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect.name.lower() == "mssql":
             return "'%s'" % value.strftime("%Y%m%d %H:%M:%S %p")
+        elif dialect.name.lower() == "sqlite":
+            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+        else:
+            raise NotImplementedError(
+                    "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
     elif isinstance(value, datetime.date):
         if dialect.name.lower() == "mysql":
             return "STR_TO_DATE('%s','%%Y-%%m-%%d')" % value.strftime("%Y-%m-%d")
@@ -39,6 +44,12 @@ def render_literal_value(value, dialect, type_):
             return "to_date('%s', 'YYYY-MM-DD')" % value.strftime("%Y-%m-%d")
         elif dialect.name.lower() == "mssql":
             return "'%s'" % value.strftime("%Y%m%d")
+        elif dialect.name.lower() == "sqlite":
+            return "'%s'" % value.strftime("%Y-%m-%d")
+        else:
+            raise NotImplementedError(
+                    "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
+
     else:
         raise NotImplementedError(
                     "Don't know how to literal-quote value %r" % value)            
@@ -71,8 +82,8 @@ def printquery(statement, bind=None, table_name=None):
                     bindparam, within_columns_clause=within_columns_clause,
                     literal_binds=literal_binds, **kwargs
             )
-        def _render_literal_values(self, value, type_):
-            return render_literal_value(value, dialect, type_)
+        def render_literal_value(self, value, type_):
+            return render_literal_value_global(value, dialect, type_)
 
     compiler = LiteralCompiler(dialect, statement)
     

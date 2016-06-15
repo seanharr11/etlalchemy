@@ -6,4 +6,7 @@ Right now we just catch exceptions (OperationalError - MySQL, ProgrammingError -
     a.) Is this just the shitty cloud services DBs that I'm using?
     b.) Is this a result of the composite primary keys?
 5.) Replace column-type guessing process (iterating over every row)  with a GROUP BY query.
-6.) Allow composite primary keys
+6.) BASIC USAGE section should inculde a public DB, and a local sqlite DB.
+7.) PyPY
+8.) NumPy Vectors?
+9.) Add Oracle support to 'sendData'
