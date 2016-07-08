@@ -4,7 +4,11 @@ import datetime
 def _stringify_as_literal_value_for_csv(value, dialect):
     if isinstance(value, basestring):
         value = value.replace("'", "''")
-        return "'%s'" % value
+        if dialect.name.lower() in ['sqlite', 'mssql', 'postgresql']:
+            # No support for 'quote' enclosed strings
+            return "%s" % value
+        else:    
+            return "'%s'" % value
     elif value is None:
         return "NULL"
     elif isinstance(value, (float, int, long)):
@@ -13,30 +17,30 @@ def _stringify_as_literal_value_for_csv(value, dialect):
         return str(value)
     elif isinstance(value, datetime.datetime):
         if dialect.name.lower() == "mysql":
-            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S")
+            return "%s" % value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect.name.lower() == "oracle":
             return "TO_DATE('%s','YYYY-MM-DD HH24:MI:SS')" % value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect.name.lower() == "postgresql":
-            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S")
+            return "\"%s\"" % value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect.name.lower() == "mssql":
             return "'%s'" % value.strftime("%m/%d/%Y %H:%M:%S.%p")
         elif dialect.name.lower() == "sqlite":
-            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+            return "%s" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
     elif isinstance(value, datetime.date):
         if dialect.name.lower() == "mysql":
-            return "'%s'" % value.strftime("%Y-%m-%d")
+            return "%s" % value.strftime("%Y-%m-%d")
         elif dialect.name.lower() == "oracle":
             return "TO_DATE('%s', 'YYYY-MM-DD')" % value.strftime("%Y-%m-%d")
         elif dialect.name.lower() == "postgresql":
-            return "'%s'" % value.strftime("%Y-%m-%d")
+            return "\"%s\"" % value.strftime("%Y-%m-%d")
         elif dialect.name.lower() == "mssql":
             return "'%s'" % value.strftime("%m/%d/%Y")
             #return "'%s'" % value.strftime("%Y%m%d")
         elif dialect.name.lower() == "sqlite":
-            return "'%s'" % value.strftime("%Y-%m-%d")
+            return "%s" % value.strftime("%Y-%m-%d")
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
@@ -88,9 +92,37 @@ def _stringify_as_literal_value(value, dialect):
     else:
         raise NotImplementedError(
                     "Don't know how to literal-quote value %r" % value)            
-def print_to_csv(fp, table_name, columns, raw_rows, dialect):
+
+def dump_oracle_insert_statements(fp, engine, table, raw_rows, columns):        
+   ##################################
+   ### No Bulk Insert available in Oracle
+   ##################################
+   #TODO: Investigate "sqlldr" CLI utility to handle this load...
+   
+   with open("{0}.sql".format(table), "a+") as fp:
+       buffr = ("INSERT INTO {0} (".format(table) +\
+               ",".join(columns) +\
+                ")\n")
+       num_rows = len(raw_rows)
+       dialect = engine.dialect
+       for i in range(0, num_rows):
+           if i == num_rows-1:
+               # Last row...
+               buffr += "SELECT " + ",".join(map(lambda c: _stringify_as_literal_value(c, dialect), raw_rows[i])) + \
+                       " FROM DUAL\n"
+           else:
+               buffr += "SELECT " + ",".join(map(lambda c: _stringify_as_literal_value(c, dialect), raw_rows[i])) + \
+                       " FROM DUAL UNION ALL\n"
+       fp.write(buffr)
+        
+
+# Supported by [MySQL, Postgresql, sqlite, SQL server (non-Azure) ]
+def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
     buffr = ""
-    if dialect.name.lower() == "mssql":
+    if dialect.name.lower() == "postgresql":
+        for r in raw_rows:
+            buffr += "|".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+    elif dialect.name.lower() in ["mssql", "sqlite"]:
         for r in raw_rows:
             buffr += "|,".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
     else:
@@ -110,7 +142,7 @@ def render_literal_value_global(value, dialect, type_):
     """
     return _stringify_as_literal_value(value, dialect)
 
-def print_query(statement, fp, bind=None, table_name=None):
+def dump_sql_statement(statement, fp, bind=None, table_name=None):
     """
     print a query, with values filled in
     for debugging purposes *only*

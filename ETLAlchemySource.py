@@ -1,6 +1,7 @@
+from itertools import islice
 import MySQLdb
 from literalquery import literalquery
-from literalquery_two import print_query, render_literal_value_global, print_to_csv
+from literalquery_two import dump_sql_statement, render_literal_value_global, dump_to_csv, dump_oracle_insert_statements
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
 from datetime import datetime
@@ -359,6 +360,7 @@ class ETLAlchemySource():
        Session = sessionmaker(bind=self.dst_engine)
        session = Session()
        conn = session.connection()
+       self.logger.info("Transferring data from local file '{0}' to target DB".format(table + ".sql"))
        if self.dst_engine.dialect.name.lower() == "mssql":
            username = self.dst_engine.url.username
            password = self.dst_engine.url.password
@@ -366,20 +368,30 @@ class ETLAlchemySource():
            db_name = list(self.dst_engine.execute("SELECT DB_NAME()").fetchall())[0][0]
            t1 = conn.begin()
            if self.destination_is_azure == True:
-
-           try:
-               conn.execute("BULK INSERT {0} FROM '{0}.sql' WITH ( \
-                                 fieldterminator = '|,', \
-                                 rowterminator = '\n' \
-                               );".format(table))
-           except sqlalchemy.exc.ProgrammingError as e:
-               self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. (It is likely that you are running on Azure SQL). \n" + \
-                                     "*****************************************************************************\n" + \
-                                     "**** Re-run with 'self.destination_is_azure = True' **...but expect slow data transfer. ****\n" + \
-                                     "*****************************************************************************\n" + \
-                                     "\nOriginal Exception: " + str(e))
-               exit(1)        
-           t1.commit()
+               ######################################
+               ### SQL Azure does not support BULK INSERT
+               ### ... we resort to a Large INSERT statement
+               ######################################
+               self.logger.info("Sending data to target MSSQL instance...(Slow - destination_is_azure = True)")
+               os.system("cat {4}.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name, table))    
+               os.system("rm {0}.sql".format(table))
+               self.logger.info("Done.")
+           else:
+               try:
+                   self.logger.info("Sending data to target MSSQL instance...(Fast [BULK INSERT])")
+                   conn.execute("BULK INSERT {0} FROM '{0}.sql' WITH ( \
+                                     fieldterminator = '|,', \
+                                     rowterminator = '\n' \
+                                   );".format(table))
+               except sqlalchemy.exc.ProgrammingError as e:
+                   self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. (It is likely that you are running on Azure SQL). \n" + \
+                                         "*****************************************************************************\n" + \
+                                         "**** Re-run with 'self.destination_is_azure = True' **...but expect slow data transfer. ****\n" + \
+                                         "*****************************************************************************\n" + \
+                                         "\nOriginal Exception: " + str(e))
+                   exit(1)        
+               t1.commit()
+               self.logger.info("Done.")
            #os.system("cat payload.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name))    
            #os.system("rm payload.sql")
        elif self.dst_engine.dialect.name.lower() == "mysql":
@@ -389,7 +401,7 @@ class ETLAlchemySource():
            host = self.dst_engine.url.host
            #os.system("echo payload.sql | mysql -h{0} -u{1} -p{2} {3}".format(host, username, password, db_name)) 
            #TODO: Take advantage of "mysqlimport -compress"
-           self.logger.info("Running 'mysqlimport' to load CSV (This is Fast)")
+           self.logger.info("Sending data to target MySQL instance...(Fast [mysqlimport])")
            os.system("mysqlimport -v -h{0} -u{1} -p{2} \
                          --compress --local --fields-terminated-by=\",\" --fields-enclosed-by=\"'\" --fields-escaped-by='\\' \
                          --columns={3} --lines-terminated-by=\"\n\" \
@@ -403,18 +415,43 @@ class ETLAlchemySource():
            db_name = self.dst_engine.url.database
            host = self.dst_engine.url.host
            full_file_path = os.getcwd() + "/" +  table + ".sql"
+           import psycopg2
+           conn = psycopg2.connect("host='{0}' port='5432' dbname='{1}' user='{2}' password='{3}'".format(host, db_name,username,password))
+           cur = conn.cursor()
+           # Legacy method (doesn't work if not superuser, and if file is LOCAL
            cmd = """COPY {0} ({1}) FROM '{2}' WITH CSV QUOTE '''' ESCAPE '\\' """.format(table, ",".join(columns), full_file_path, "'")
-           self.logger.info("Running postgresql 'COPY FROM' command (This is Fast): \n ----> {0}".format(cmd))
-           self.dst_engine.execute(cmd)
+           self.logger.info("Sending data to target Postgresql instance...(Fast [COPY ... FROM ... WITH CSV]): \n ----> {0}".format(cmd))
+           with open(full_file_path, 'r') as fp_psql:
+               cur.copy_from(fp_psql, str(table), null="NULL", sep="|", columns=tuple(map(lambda c: str(c), columns)))
+               #cur.copy_expert(cmd, fp_psql)
+           #self.dst_engine.execute(cmd)
            #os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
+           conn.commit()
+           conn.close()
            os.system("rm {0}.sql".format(table))
            self.logger.info("Done.")
 
        elif self.dst_engine.dialect.name.lower() == "sqlite":
-           with open("payload.sql", "r") as fp:
+           db_name = self.dst_engine.url.database
+           self.logger.info("Sending data to target sqlite instance...(Fast [.import])")
+           os.system("echo '.mode csv {0}\n.import {0}.sql {0}' | sqlite3 {1}".format(table, db_name))
+           """
+           with open("{0}.sql".format(table), "r") as fp:
                for line in fp.readlines():
                    self.dst_engine.execute(line)
-           os.system("rm payload.sql")
+           """
+           os.system("rm {0}.sql".format(table))
+           self.logger.info("Done.")
+       elif self.dst_engine.dialect.name.lower() == "oracle":
+           with open("{0}.sql".format(table), "r") as fp_orcl:
+               lines_inserted = 0
+               while True:
+                   next_n_lines = list(islice(fp_orcl, 1001))
+                   lines_inserted += 1000
+                   if not next_n_lines:
+                       break
+                   self.dst_engine.execute("\n".join(next_n_lines))
+                   self.logger.info("Inserted '{0}' rows".format(str(lines_inserted)))
        else:
            raise Exception("Not Implemented!")
    """
@@ -435,10 +472,13 @@ class ETLAlchemySource():
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
            with open("{0}.sql".format(T.name), "a+") as fp:                   
-               if self.destination_is_azure == True:
-                   print_query(T.insert().values(raw_rows), fp, self.dst_engine, T.name)
+               if self.destination_is_azure == True and self.dst_engine.dialect.name.lower() == "mssql":
+                   dump_sql_statement(T.insert().values(map(lambda r: dict(zip(self.current_ordered_table_columns, r)), raw_rows)), fp, self.dst_engine, T.name)
+               elif self.dst_engine.dialect.name.lower() == "oracle":
+                   self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
+                   dump_oracle_insert_statements(fp, self.dst_engine, T.name, raw_rows, self.current_ordered_table_columns)
                else:
-                   print_to_csv(fp, T.name, self.current_ordered_table_columns, raw_rows, self.dst_engine.dialect)
+                   dump_to_csv(fp, T.name, self.current_ordered_table_columns, raw_rows, self.dst_engine.dialect)
         else:
            ########################################
            #### We need to upsert the data...prepare upsertDict...
@@ -469,7 +509,7 @@ class ETLAlchemySource():
                for pk in pks:
                    uid += str(row[pk])
                if upsertDict.get(uid):
-                   with open("payload.sql", "a+") as fp:
+                   with open("{0}.sql".format(T.name), "a+") as fp:
                        fp.write(printquery((T.update()\
                                .where(and_(*tuple(map(lambda pk: T.columns[pk] == row[pk], pks))))\
                                .values(row)), self.dst_engine, T.name))
@@ -482,7 +522,7 @@ class ETLAlchemySource():
            raw_row_len = len(raw_rows)
            if len(raw_rows) > 0:
                self.logger.info(" ({0}) -- Inserting remaining '{0}' rows.".format(str(raw_row_len)))
-               with open("payload.sql", "a+") as fp:
+               with open("{0}.sql".format(T.name), "a+") as fp:
                    fp.write(print_query(T.insert().values(raw_rows), fp, self.dst_engine, T.name))
         conn.close()
    ## TODO: Have a 'Create' option for each table... 
@@ -641,74 +681,32 @@ class ETLAlchemySource():
                insp.reflecttable(T, None)
                if load_data == True:
                    self.logger.info("Transforming & Inserting "+ str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
-                   if self.dst_engine.dialect.name.lower() == "oracle":
-                       ##################################
-                       ### No Bulk Insert available in Oracle
-                       ##################################
-                       #TODO: Investigate "sqlldr" CLI utility to handle this load...
-                       self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
-                       columns = map(lambda c: c.name, T.columns)
-                       raw_rows_lists = map(lambda row: \
-                               map(lambda c: render_literal_value_global(row[c], self.dst_engine.dialect, None), \
-                                   map(lambda c: self.current_ordered_table_columns.index(c), columns)), raw_rows)
-                       if os.path.exists("payload.sql"):
-                           os.remove("payload.sql")
-                       
-                       with open("payload.sql", "a+") as fp:
-                           fp.write("INSERT INTO {0} (".format(T.name) +\
-                                   ",".join(columns) +\
-                                    ")\n") #WITH column_values as (\n")#INSERT INTO table (column1,column2,column3)
-                           for i in range(0, len(raw_rows_lists)):
-                               if i % 1000 == 0 and i != 0: #Skip the first row...
-                                   self.logger.info("Inserted '{0}' rows.".format(str(i)))
-                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL\n".format(",".join(columns)))
-                                   fp.seek(0)
-                                   insert_statement = fp.read()
-                                   self.dst_engine.execute(insert_statement)
-                                   fp.truncate(0) # Logically truncate the file                                   
-                                   fp.seek(0) # Reset fp to begining of file
-                                   fp.write("INSERT INTO {0} (".format(T.name) +\
-                                           ",".join(columns) +\
-                                            ")\n") #WITH column_values as (\n")#INSERT INTO table (column1,column2,column3)
-                               elif i == (len(raw_rows_lists) - 1): #Last row...
-                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL\n".format(",".join(columns)))#) SELECT * FROM column_values".format(",".join(columns)))
-                                   fp.seek(0)
-                                   insert_statement = fp.read()
-                                   self.logger.info(insert_statement)
-                                   self.dst_engine.execute(insert_statement)
-                                   os.system("rm payload.sql") #TODO: Use utilities to rm the file, not system calls (not abstract or platform-independent)
-                                   self.logger.info("Inserted '{0}' rows.".format(str(i)))
-                               else:
-                                   fp.write("SELECT " + ",".join(raw_rows_lists[i]) + " FROM DUAL UNION ALL\n")
-                           # Insert the last rows...           
-                           #self.dst_engine.execute(T.insert().values(raw_rows[i]))
-                   else:
-                       # Create buffers of "1000" rows
-                       #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
-                       insertionCount = (len(raw_rows) / 1000) + 1
-                       raw_row_len = len(raw_rows)
-                       
-                       if len(raw_rows) > 0:
-                           for i in range(0, insertionCount):
-                               startRow = 0  #i * 1000
-                               endRow = 1000 #(i+1) * 1000 
-                               virtualStartRow = i * 1000
-                               virtualEndRow = (i+1) * 1000
-                               if virtualEndRow > raw_row_len:
-                                   virtualEndRow = raw_row_len
-                                   endRow = raw_row_len
-                               self.logger.info(" ({0}) -- Transforming rows: ".format(T.name) + str(virtualStartRow) + \
-                                        " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
-                               self.transformData(T_src, raw_rows[startRow:endRow])
-                               self.logger.info(" ({0}) -- Dumping rows: ".format(T.name) + str(virtualStartRow) + \
-                                        " -> " + str(virtualEndRow) + " to 'payload.sql'...({0} Total)".format(str(raw_row_len)))
-                                 
-                               self.dumpData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
-                               del raw_rows[startRow:endRow]
-                       ################################################################
-                       ### Now *actually* load the data via fast-CLI utilities
-                       ################################################################
-                       self.sendData(T.name, self.current_ordered_table_columns) # From payload.sql
+                   # Create buffers of "1000" rows
+                   #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
+                   insertionCount = (len(raw_rows) / 1000) + 1
+                   raw_row_len = len(raw_rows)
+                   
+                   if len(raw_rows) > 0:
+                       for i in range(0, insertionCount):
+                           startRow = 0  #i * 1000
+                           endRow = 1000 #(i+1) * 1000 
+                           virtualStartRow = i * 1000
+                           virtualEndRow = (i+1) * 1000
+                           if virtualEndRow > raw_row_len:
+                               virtualEndRow = raw_row_len
+                               endRow = raw_row_len
+                           self.logger.info(" ({0}) -- Transforming rows: ".format(T.name) + str(virtualStartRow) + \
+                                    " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
+                           self.transformData(T_src, raw_rows[startRow:endRow])
+                           self.logger.info(" ({0}) -- Dumping rows: ".format(T.name) + str(virtualStartRow) + \
+                                    " -> " + str(virtualEndRow) + " to '{1}.sql'...({0} Total)".format(str(raw_row_len), T.name))
+                             
+                           self.dumpData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
+                           del raw_rows[startRow:endRow]
+                   ################################################################
+                   ### Now *actually* load the data via fast-CLI utilities
+                   ################################################################
+                   self.sendData(T.name, self.current_ordered_table_columns) # From <table_name>.sql
 
                t_stop_load = datetime.now()
                
