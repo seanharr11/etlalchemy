@@ -1,17 +1,52 @@
 import decimal
 import datetime
 
+def _stringify_as_literal_value_for_csv(value, dialect):
+    if isinstance(value, basestring):
+        value = value.replace("'", "''")
+        return "'%s'" % value
+    elif value is None:
+        return "NULL"
+    elif isinstance(value, (float, int, long)):
+        return "%s" % value
+    elif isinstance(value, decimal.Decimal):
+        return str(value)
+    elif isinstance(value, datetime.datetime):
+        if dialect.name.lower() == "mysql":
+            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S")
+        elif dialect.name.lower() == "oracle":
+            return "TO_DATE('%s','YYYY-MM-DD HH24:MI:SS')" % value.strftime("%Y-%m-%d %H:%M:%S")
+        elif dialect.name.lower() == "postgresql":
+            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S")
+        elif dialect.name.lower() == "mssql":
+            return "'%s'" % value.strftime("%m/%d/%Y %H:%M:%S.%p")
+        elif dialect.name.lower() == "sqlite":
+            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+        else:
+            raise NotImplementedError(
+                    "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
+    elif isinstance(value, datetime.date):
+        if dialect.name.lower() == "mysql":
+            return "'%s'" % value.strftime("%Y-%m-%d")
+        elif dialect.name.lower() == "oracle":
+            return "TO_DATE('%s', 'YYYY-MM-DD')" % value.strftime("%Y-%m-%d")
+        elif dialect.name.lower() == "postgresql":
+            return "'%s'" % value.strftime("%Y-%m-%d")
+        elif dialect.name.lower() == "mssql":
+            return "'%s'" % value.strftime("%m/%d/%Y")
+            #return "'%s'" % value.strftime("%Y%m%d")
+        elif dialect.name.lower() == "sqlite":
+            return "'%s'" % value.strftime("%Y-%m-%d")
+        else:
+            raise NotImplementedError(
+                    "No support for engine with dialect '%s'. Implement it here!" % dialect.name)            
 
-def render_literal_value_global(value, dialect, type_):
-    """Render the value of a bind parameter as a quoted literal.
+    else:
+        raise NotImplementedError(
+                    "Don't know how to literal-quote value %r" % value)            
 
-    This is used for statement sections that do not accept bind paramters
-    on the target driver/database.
 
-    This should be implemented by subclasses using the quoting services
-    of the DBAPI.
-
-    """
+def _stringify_as_literal_value(value, dialect):
     if isinstance(value, basestring):
         value = value.replace("'", "''")
         return "'%s'" % value
@@ -53,8 +88,29 @@ def render_literal_value_global(value, dialect, type_):
     else:
         raise NotImplementedError(
                     "Don't know how to literal-quote value %r" % value)            
+def print_to_csv(fp, table_name, columns, raw_rows, dialect):
+    buffr = ""
+    if dialect.name.lower() == "mssql":
+        for r in raw_rows:
+            buffr += "|,".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+    else:
+        for r in raw_rows:
+            buffr += ",".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+    fp.write(buffr)
+    
+def render_literal_value_global(value, dialect, type_):
+    """Render the value of a bind parameter as a quoted literal.
 
-def printquery(statement, bind=None, table_name=None):
+    This is used for statement sections that do not accept bind paramters
+    on the target driver/database.
+
+    This should be implemented by subclasses using the quoting services
+    of the DBAPI.
+
+    """
+    return _stringify_as_literal_value(value, dialect)
+
+def print_query(statement, fp, bind=None, table_name=None):
     """
     print a query, with values filled in
     for debugging purposes *only*
@@ -91,4 +147,4 @@ def printquery(statement, bind=None, table_name=None):
     if dialect.name.lower() == "mssql":
         return "SET IDENTITY_INSERT {0} ON ".format(table_name) + stmt
 
-    return stmt
+    fp.write(stmt)

@@ -72,33 +72,37 @@ class SchemaTransformer():
 
 
     # Returns 'True' if an action is defined for the column... 
-    def transform_column(self, C, tablename):
+    def transform_column(self, C, tablename, columns):
         # Find Column...
         thisTableST = self.columnTransformations.get(tablename)
-
         initialColumnName = C.name
-        returnValue = False
-
+        actionApplied = False
+        idx = columns.index(C.name)
+       
         if thisTableST:
             st = thisTableST.get(C.name)
             if st and st.action.lower() in ["delete", "rename"]:
                 if st.action.lower() == "delete":
-                    returnValue = None
+                    # Remove the column from the list of columns...
+                    del columns[idx]
+                    actionApplied = True
                 elif st.action.lower() == "rename":
                     self.logger.info(" ----> Renaming column '{0}' => '{1}'".format(C.name, st.newColumn))
                     C.name = st.newColumn
-                    returnValue = True
+                    columns[idx] = C.name
+                    actionApplied = True
             else:
                 if st:
                     self.logger.warning(" ----> Action '{0}' not yet implemented, ignoring...".format(st.action))
         
-        if returnValue not in [None, True]:
+        if actionApplied == False:
             # Then the column had no 'action' applied to it...
             for k in self.global_renamed_col_suffixes.keys():
                 # Check if column name ends with specfiic suffix
                 if initialColumnName.lower().endswith(k.lower()):
                     self.logger.info(" ---> Renaming column '{0}' to GLOBAL default '{1}' because it contains '{2}'".format(initialColumnName.lower(), self.global_renamed_col_suffixes[k], k.lower()))
                     C.name = self.global_renamed_col_suffixes[k]
+                    columns[idx] = C.name
         ############################
         ### Now update the type ###
         ############################
@@ -106,18 +110,17 @@ class SchemaTransformer():
             st = thisTableST.get(initialColumnName)
             if st.newType():
                 C.type = st.newType()
-                returnValue = True
     
-        return returnValue
+        return columns
 
-    def transform_rows(self, rows, tablename):
+    def transform_rows(self, rows, columns, tablename):
         thisTableST = self.columnTransformations.get(tablename)
-        
         if thisTableST == None:
             return 
         for r in rows:
-            for col in r.keys():
+            for col in columns:
                 st = thisTableST.get(col)
+                idx = columns.index(col)
                 if st and st.action.lower() in ["delete", "rename"]:
                     # Then there is a transformation defined for this column...
                     try:
@@ -126,18 +129,7 @@ class SchemaTransformer():
                                 if thisTableST[st.newColumn].action.lower() == "delete":
                                     # Then this column will be deleted later! We must avoid this!
                                     del thisTableST[st.newColumn]
-                            #Update the new column if there is a schemaTransformation for that column
-                            if st.newColumn == '':
-                                s = "column '{0}'. has a newColumn of ''".format(col)
-                                raise Exception(s)
-
-                            r[unicode(st.newColumn, 'utf-8')] = r[st.oldColumn]
-                            ##################################
-                            ### Workaround for columns "renamed" to their original title
-                            #################################
-                            if st.newColumn != st.oldColumn:
-                                del r[st.oldColumn]
                         elif st.action.lower() == "delete":
-                            del r[st.oldColumn]
+                            del r[idx]
                     except KeyError as e:     
                         raise e 

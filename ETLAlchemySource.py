@@ -1,15 +1,14 @@
+import MySQLdb
 from literalquery import literalquery
-from literalquery_two import printquery, render_literal_value_global
+from literalquery_two import print_query, render_literal_value_global, print_to_csv
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
 from datetime import datetime
 import time
 from copy import deepcopy
-import dill
 import pickle
 import sqlalchemy
 import logging
-import abc
 #from clean import cleaners
 from sqlalchemy.sql import select
 from sqlalchemy.schema import CreateTable, Column
@@ -29,38 +28,6 @@ import os
 
 # Parse the connection_string to find relevant info for each db engine #
 
-def sendData(engine):
-    if engine.dialect.name.lower() == "mssql":
-        username = engine.url.username
-        password = engine.url.password
-        dsn = engine.url.host
-        db_name = list(engine.execute("SELECT DB_NAME()").fetchall())[0][0]
-        os.system("cat payload.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name))    
-        os.system("rm payload.sql")
-    elif engine.dialect.name.lower() == "mysql":
-        username = engine.url.username
-        password = engine.url.password
-        db_name = engine.url.database
-        host = engine.url.host
-        os.system("cat payload.sql | mysql -h{0} -u{1} -p{2} {3}".format(host, username, password, db_name)) 
-        #TODO: Take advantage of "mysqlimport -compress"
-        #os.system("mysqlimport -h{0} -u{1} -p{2} --compress 
-        os.system("rm payload.sql")
-    elif engine.dialect.name.lower() == "postgresql":
-        #TODO: Take advantage of psql> COPY FROM <payload.sql> WITH DELIMITER AS ","
-        username = engine.url.username
-        password = engine.url.password
-        db_name = engine.url.database
-        host = engine.url.host
-        os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
-        os.system("rm payload.sql")
-    elif engine.dialect.name.lower() == "sqlite":
-        with open("payload.sql", "r") as fp:
-            for line in fp.readlines():
-                engine.execute(line)
-        os.system("rm payload.sql")
-    else:
-        raise Exception("Not Implemented!")
 """
     Each ETLAlchemySource instance handles the migration from 1 single SQL DB source.
     When created, it is agnostic of its destination. The destination is passed to
@@ -89,14 +56,19 @@ class ETLAlchemySource():
        self.logger.setLevel(logging.INFO)
        # Load the json dict of cleaners...
        # {'table': [cleaner1, cleaner2,...etc], 'table2': [cleaner1,...cleanerN]}
+       
        self.included_tables = included_tables
        self.excluded_tables = excluded_tables
 
+       # Set this to 'True' if sending to SQL Azure (because it doesn't support BULK INSERT
+       self.destination_is_azure = True
+
+       self.current_ordered_table_columns = []
        if dill_cleaner_file:
            self.cleaners = dill.load(dill_cleaner_file)
        else:
            self.cleaners = {}
-   
+       
        self.schemaTransformer = SchemaTransformer(column_transform_file=column_schema_transformation_file,\
                                                   table_transform_file=table_schema_transformation_file,\
                                                   global_renamed_col_suffixes=global_renamed_col_suffixes)
@@ -181,7 +153,7 @@ class ETLAlchemySource():
            ##################################
            column_copy.type.collation = None
            for row in raw_rows:
-               data = row[column.name]
+               data = row[self.current_ordered_table_columns.index(column.name)]
                if varchar_length and data and len(data) > varchar_length:
                    self.logger.critical("Length of column '{0}' exceeds VARCHAR({1})".format(column.name, str(varchar_length)))
                if data != None:
@@ -194,7 +166,7 @@ class ETLAlchemySource():
            typeCount = {}
            types = set([])
            for row in raw_rows:
-               data = row[column.name]
+               data = row[self.current_ordered_table_columns.index(column.name)]
                types.add(data.__class__.__name__)
                if typeCount.get(data.__class__.__name__):
                    typeCount[data.__class__.__name__] += 1
@@ -221,7 +193,7 @@ class ETLAlchemySource():
            typeCount = {}
            types = set([])
            for row in raw_rows:
-               data = row[column.name]
+               data = row[self.current_ordered_table_columns.index(column.name)]
                types.add(data.__class__.__name__)
                if typeCount.get(data.__class__.__name__):
                    typeCount[data.__class__.__name__] += 1
@@ -287,25 +259,18 @@ class ETLAlchemySource():
        table_name = T.name
        null = True
        for row in raw_rows:
-           data = row[column.name]
+           data = row[self.current_ordered_table_columns.index(column.name)]
            if data != None:
                # There exists at least 1 row with a non-Null value for the column
                null = False
        cname = column_copy.name
        columnHasGloballyIgnoredSuffix = len(filter(lambda s: cname.find(s) > -1, self.global_ignored_col_suffixes)) > 0
        
-       is_action = self.schemaTransformer.transform_column(column_copy, T.name)
-       """ 'None' value returned by 'transform_column' indicates that this column should be DELETED """
-       if is_action == True:
-           # Column was probably renamed, or had another action defined. 
-           # We want to KEEP these columns!
-           if T_dst_exists:
-               pass
-               #TODO Add the column to the table...
-           else:
-               T.append_column(column_copy) #column_copy has updated datatype...
-           logging.info(" -----> '{0}' ({1}) => '{2}' ({3})".format(column.name, str(old_column_class), column_copy.name, str(column_copy.type.__class__)))
-       elif is_action == None:
+       oldColumns = self.current_ordered_table_columns
+       oldColumnsLength = len(self.current_ordered_table_columns)
+       self.current_ordered_table_columns = self.schemaTransformer.transform_column(column_copy, T.name, self.current_ordered_table_columns)
+       if oldColumnsLength != len(self.current_ordered_table_columns):
+           # A column is scheduled to be deleted
            self.logger.warning(" ------> Column '" + cname + "' is scheduled to be deleted -- **NOT** migrating this column...")
            self.deletedColumnCount += 1
            self.deletedColumns.append(table_name + "." + cname)
@@ -313,11 +278,15 @@ class ETLAlchemySource():
                pass
                #TODO: Delete the column from T_dst
            return False
-       elif columnHasGloballyIgnoredSuffix:
-           self.logger.warning("Column '" + cname + "' is set to be globally ignored, skipping....")
-           self.deletedColumnCount += 1
-           self.deletedColumns.append(table_name + "." + cname)
-           return False
+       elif oldColumns != self.current_ordered_table_columns:
+           # Column was renamed
+           if T_dst_exists:
+               pass
+               #TODO Add the column to the table...
+           else:
+               T.append_column(column_copy) #column_copy has updated datatype...
+           logging.info(" -----> '{0}' ({1}) => '{2}' ({3})".format(column.name, str(old_column_class), column_copy.name, str(column_copy.type.__class__)))
+           return True
        elif null == True and self.skipColumnIfEmpty == True: 
            self.nullColumnCount += 1
            self.nullColumns.append(table_name + "." + column_copy.name)
@@ -331,7 +300,7 @@ class ETLAlchemySource():
            else:
                T.append_column(column_copy) #column_copy has updated datatype...
            logging.info(" ******* " + str(column.name) + " == " + str(old_column_class) + " => " + str(column_copy.type.__class__))
-       return True
+           return True
 
    def transformTable(self, T):
        ################################
@@ -367,7 +336,7 @@ class ETLAlchemySource():
             TC.loadCleaners(self.cleaners[table_name])
             TC.clean(raw_rows)
         # Transform the schema second (by updating the column names [keys of dict])
-        self.schemaTransformer.transform_rows(raw_rows, T_src.name)
+        self.schemaTransformer.transform_rows(raw_rows, self.current_ordered_table_columns, T_src.name)
        
         
    def createTable(self, T_dst_exists, T):
@@ -386,12 +355,76 @@ class ETLAlchemySource():
             return True
             # We need to Upsert the data...
 
+   def sendData(self, table, columns):
+       Session = sessionmaker(bind=self.dst_engine)
+       session = Session()
+       conn = session.connection()
+       if self.dst_engine.dialect.name.lower() == "mssql":
+           username = self.dst_engine.url.username
+           password = self.dst_engine.url.password
+           dsn = self.dst_engine.url.host
+           db_name = list(self.dst_engine.execute("SELECT DB_NAME()").fetchall())[0][0]
+           t1 = conn.begin()
+           if self.destination_is_azure == True:
+
+           try:
+               conn.execute("BULK INSERT {0} FROM '{0}.sql' WITH ( \
+                                 fieldterminator = '|,', \
+                                 rowterminator = '\n' \
+                               );".format(table))
+           except sqlalchemy.exc.ProgrammingError as e:
+               self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. (It is likely that you are running on Azure SQL). \n" + \
+                                     "*****************************************************************************\n" + \
+                                     "**** Re-run with 'self.destination_is_azure = True' **...but expect slow data transfer. ****\n" + \
+                                     "*****************************************************************************\n" + \
+                                     "\nOriginal Exception: " + str(e))
+               exit(1)        
+           t1.commit()
+           #os.system("cat payload.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name))    
+           #os.system("rm payload.sql")
+       elif self.dst_engine.dialect.name.lower() == "mysql":
+           username = self.dst_engine.url.username
+           password = self.dst_engine.url.password
+           db_name = self.dst_engine.url.database
+           host = self.dst_engine.url.host
+           #os.system("echo payload.sql | mysql -h{0} -u{1} -p{2} {3}".format(host, username, password, db_name)) 
+           #TODO: Take advantage of "mysqlimport -compress"
+           self.logger.info("Running 'mysqlimport' to load CSV (This is Fast)")
+           os.system("mysqlimport -v -h{0} -u{1} -p{2} \
+                         --compress --local --fields-terminated-by=\",\" --fields-enclosed-by=\"'\" --fields-escaped-by='\\' \
+                         --columns={3} --lines-terminated-by=\"\n\" \
+                         {4} {5}.sql ".format(host, username, password, ",".join(columns), db_name, table))
+           os.system("rm {0}.sql".format(table))
+           self.logger.info("Done.")
+       elif self.dst_engine.dialect.name.lower() == "postgresql":
+           #TODO: Take advantage of psql> COPY FROM <payload.sql> WITH DELIMITER AS ","
+           username = self.dst_engine.url.username
+           password = self.dst_engine.url.password
+           db_name = self.dst_engine.url.database
+           host = self.dst_engine.url.host
+           full_file_path = os.getcwd() + "/" +  table + ".sql"
+           cmd = """COPY {0} ({1}) FROM '{2}' WITH CSV QUOTE '''' ESCAPE '\\' """.format(table, ",".join(columns), full_file_path, "'")
+           self.logger.info("Running postgresql 'COPY FROM' command (This is Fast): \n ----> {0}".format(cmd))
+           self.dst_engine.execute(cmd)
+           #os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
+           os.system("rm {0}.sql".format(table))
+           self.logger.info("Done.")
+
+       elif self.dst_engine.dialect.name.lower() == "sqlite":
+           with open("payload.sql", "r") as fp:
+               for line in fp.readlines():
+                   self.dst_engine.execute(line)
+           os.system("rm payload.sql")
+       else:
+           raise Exception("Not Implemented!")
    """
-      Load the data from source to destination for table "T" 
-      given buffer of rows, "raw_rows".
+      Dumps the data to a file called <table_name>.sql.
+      Depending on the DB Target, either a CSV will be generated
+      for optimized BULK IMPORT, or an INSERT query will be generated
+      if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
    """
-   def loadData(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
-        
+   def dumpData(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
+
         """"""""""""""""""""
         """ *** LOAD *** """
         """"""""""""""""""""
@@ -401,10 +434,11 @@ class ETLAlchemySource():
         if not T_dst_exists:
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
-           #s.bulk_insert_mappings(myBase.classes[T.name], raw_rows)
-           #conn.execute(T.insert(), raw_rows)
-           with open("payload.sql", "a+") as fp:
-               fp.write(printquery(T.insert().values(raw_rows), self.dst_engine, T.name))
+           with open("{0}.sql".format(T.name), "a+") as fp:                   
+               if self.destination_is_azure == True:
+                   print_query(T.insert().values(raw_rows), fp, self.dst_engine, T.name)
+               else:
+                   print_to_csv(fp, T.name, self.current_ordered_table_columns, raw_rows, self.dst_engine.dialect)
         else:
            ########################################
            #### We need to upsert the data...prepare upsertDict...
@@ -449,7 +483,7 @@ class ETLAlchemySource():
            if len(raw_rows) > 0:
                self.logger.info(" ({0}) -- Inserting remaining '{0}' rows.".format(str(raw_row_len)))
                with open("payload.sql", "a+") as fp:
-                   fp.write(printquery(T.insert().values(raw_rows), self.dst_engine, T.name))
+                   fp.write(print_query(T.insert().values(raw_rows), fp, self.dst_engine, T.name))
         conn.close()
    ## TODO: Have a 'Create' option for each table... 
    def migrate(self, destination_database_url, load_data=False, load_schema=False):
@@ -464,6 +498,9 @@ class ETLAlchemySource():
        dst_meta = MetaData()
        
        Session = sessionmaker(bind=self.dst_engine)
+       
+       src_session = sessionmaker(bind=self.engine)()
+
        dst_meta.bind = self.dst_engine
 
        TablesIterator = self.table_names #defaults to ALL tables
@@ -516,15 +553,40 @@ class ETLAlchemySource():
                """"""""""""""""""""""""""
                """ *** EXTRACTION *** """
                """"""""""""""""""""""""""
+               #########################################################
+               ### Generate the mapping of 'column_name' -> 'list index'
+               ########################################################
+               cols = map(lambda c: c.name,  T_src.columns)
+               self.current_ordered_table_columns = [None] * len(cols)
+               for i in range(0, len(cols)):
+                   self.current_ordered_table_columns[i] = cols[i]
                ###################################
                ### Grab raw rows for data type checking...
                ##################################
-               selectable = self.engine.execute(T_src.select())
-               rows = selectable.fetchall()
-               raw_rows = [dict(zip(row.keys(), row)) for row in rows]
-               
+               #selectable = self.engine.execute(T_src.select())
+               #rows = selectable.fetchall()
+
+
+
+               self.logger.info("Building query to fetch all rows from {0}".format(T_src.name))
+               cnt = src_session.query(T_src).count() #self.engine.execute(T_src.count())
+               resultProxy = self.engine.execute(T_src.select())
+               self.logger.info("Done. ({0} total rows)".format(str(cnt)))
+               #raw_rows = []
+               #raw_rows = [dict(zip(row.keys(), row)) for row in rows]
+               j = 0
+               self.logger.info("Loading all rows into memory...")
+               rows = []
+               buffer_size = 10000
+               for i in range(1, (cnt / buffer_size) + 1):
+                   self.logger.info("Fetched {0} rows".format(str(i * buffer_size)))
+                   rows += resultProxy.fetchmany(buffer_size)
+               rows += resultProxy.fetchmany(cnt % buffer_size)
+               raw_rows = [row for row in rows]
+               self.logger.info("Done")
                pks = []
-               
+
+
                ## TODO: Use column/table mappers, would need to update foreign keys...
                for column in T_src.columns:
                    self.columnCount += 1
@@ -587,7 +649,8 @@ class ETLAlchemySource():
                        self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
                        columns = map(lambda c: c.name, T.columns)
                        raw_rows_lists = map(lambda row: \
-                                                   map(lambda c: render_literal_value_global(row[c], self.dst_engine.dialect, None), columns), raw_rows)
+                               map(lambda c: render_literal_value_global(row[c], self.dst_engine.dialect, None), \
+                                   map(lambda c: self.current_ordered_table_columns.index(c), columns)), raw_rows)
                        if os.path.exists("payload.sql"):
                            os.remove("payload.sql")
                        
@@ -624,6 +687,7 @@ class ETLAlchemySource():
                        #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
                        insertionCount = (len(raw_rows) / 1000) + 1
                        raw_row_len = len(raw_rows)
+                       
                        if len(raw_rows) > 0:
                            for i in range(0, insertionCount):
                                startRow = 0  #i * 1000
@@ -633,18 +697,18 @@ class ETLAlchemySource():
                                if virtualEndRow > raw_row_len:
                                    virtualEndRow = raw_row_len
                                    endRow = raw_row_len
-                               self.logger.info(" ({0}) -- TRANSFORMING rows: ".format(T.name) + str(virtualStartRow) + \
+                               self.logger.info(" ({0}) -- Transforming rows: ".format(T.name) + str(virtualStartRow) + \
                                         " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
                                self.transformData(T_src, raw_rows[startRow:endRow])
-                               self.logger.info(" ({0}) -- INSERTING rows: ".format(T.name) + str(virtualStartRow) + \
-                                        " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
+                               self.logger.info(" ({0}) -- Dumping rows: ".format(T.name) + str(virtualStartRow) + \
+                                        " -> " + str(virtualEndRow) + " to 'payload.sql'...({0} Total)".format(str(raw_row_len)))
                                  
-                               self.loadData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
+                               self.dumpData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
                                del raw_rows[startRow:endRow]
                        ################################################################
                        ### Now *actually* load the data via fast-CLI utilities
                        ################################################################
-                       sendData(self.dst_engine) # From payload.sql
+                       self.sendData(T.name, self.current_ordered_table_columns) # From payload.sql
 
                t_stop_load = datetime.now()
                
@@ -1047,21 +1111,4 @@ class ETLAlchemySource():
        with open("./transformations/deletedColumns.csv", "w") as fp:
            fp.write("\n".join(map(lambda c: c.replace(".", ","), removedColumns)))
    
-   #########################
-   ### JUST connects to the DB, skips automapping
-   ########################
-   def connect(self,database_url, username, password):
-       self.database_url = database_url
-       self.engine = create_engine(database_url)
-       self.connection = self.engine.connect()
-       
-       return self.connection
-   
-   def close(self):
-       self.connection.close()
-   
-   @abc.abstractmethod
-   def run(self):
-      """ This function will be run the DBConverter """
-      return
 
