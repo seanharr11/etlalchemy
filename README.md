@@ -24,7 +24,7 @@ _(Sources in first column, destinations in first row)_
 | **Postgresql** |![alt text][failure]|![alt text][success]|![alt text][success]|![alt text][success]|![alt text][success]|
 | **MSSQL** |![alt text][success]|![alt text][success]|![alt text][success]|![alt text][success]|![alt text][success]|
 | **Oracle** |![alt text][success]|![alt text][success]|![alt text][success]|![alt text][success]|![alt text][success]|
-| **SQLite** |![alt text][success]|![alt text][failure]|![alt text][failure]|![alt text][success]|![alt text][success]|
+| **SQLite** |![alt text][failure]|![alt text][success]|![alt text][failure]|![alt text][failure]|![alt text][success]|
 
     
 

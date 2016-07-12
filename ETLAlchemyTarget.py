@@ -13,6 +13,9 @@ class ETLAlchemyTarget():
         ##########################
         self.sources = []
         self.logger = logging.getLogger("ETLAlchemyTarget")
+        for h in list(self.logger.handlers):
+            # Clean up any old loggers...(useful during testing w/ multiple log_files)
+            self.logger.removeHandler(h)
         handler = logging.StreamHandler()
         formatter = logging.Formatter('%(name)s (%levelname)s) - %(message)s')
         self.logger.addHandler(handler)

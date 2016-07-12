@@ -1,7 +1,6 @@
 from itertools import islice
 import MySQLdb
-from literalquery import literalquery
-from literalquery_two import dump_sql_statement, render_literal_value_global, dump_to_csv, dump_oracle_insert_statements
+from literal_value_generator import dump_to_sql_statement, dump_to_csv, dump_to_oracle_insert_statements
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
 from datetime import datetime
@@ -47,12 +46,19 @@ class ETLAlchemySource():
                  table_schema_transformation_file=None,\
                  included_tables=None, excluded_tables=None,\
                  dill_cleaner_file=None,\
-                 dill_mapper_file=None):
+                 dill_mapper_file=None,
+                 log_file=None):
        self.logger = logging.getLogger("ETLAlchemySource")
        self.logger.propagate = False
        handler = logging.StreamHandler()
+       if log_file != None:
+           for h in list(self.logger.handlers):
+               # Clean up any old loggers...(useful during testing w/ multiple log_files)
+               self.logger.removeHandler(h)
+           handler = logging.FileHandler(log_file)
        formatter = logging.Formatter('%(name)s (%(levelname)s) - %(message)s')
        handler.setFormatter(formatter)
+
        self.logger.addHandler(handler)
        self.logger.setLevel(logging.INFO)
        # Load the json dict of cleaners...
@@ -61,8 +67,13 @@ class ETLAlchemySource():
        self.included_tables = included_tables
        self.excluded_tables = excluded_tables
 
-       # Set this to 'True' if sending to SQL Azure (because it doesn't support BULK INSERT
-       self.destination_is_azure = True
+       # Set this to 'False' if you are using either of the following MSSQL Environments:
+       # 1.) AWS SQL Server
+       #   ---> The 'bulkadmin' role required for BULK INSERT permissions is not available in AWS (see https://forums.aws.amazon.com/thread.jspa?threadID=122351)
+       # 2.) Azure SQL
+       #   ---> The 'BULK INSERT' feature is disabled in the Microsoft Azure cloud
+       # ** Otherwise, setting this to 'True' will vastly improve run-time...
+       self.enable_mssql_bulk_insert = False
 
        self.current_ordered_table_columns = []
        if dill_cleaner_file:
@@ -359,41 +370,41 @@ class ETLAlchemySource():
    def sendData(self, table, columns):
        Session = sessionmaker(bind=self.dst_engine)
        session = Session()
-       conn = session.connection()
        self.logger.info("Transferring data from local file '{0}' to target DB".format(table + ".sql"))
        if self.dst_engine.dialect.name.lower() == "mssql":
            username = self.dst_engine.url.username
            password = self.dst_engine.url.password
            dsn = self.dst_engine.url.host
            db_name = list(self.dst_engine.execute("SELECT DB_NAME()").fetchall())[0][0]
-           t1 = conn.begin()
-           if self.destination_is_azure == True:
+           if self.enable_mssql_bulk_insert == False:
                ######################################
                ### SQL Azure does not support BULK INSERT
                ### ... we resort to a Large INSERT statement
                ######################################
-               self.logger.info("Sending data to target MSSQL instance...(Slow - destination_is_azure = True)")
+               self.logger.info("Sending data to target MSSQL instance...(Slow - enable_mssql_bulk_insert = False)")
                os.system("cat {4}.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name, table))    
-               os.system("rm {0}.sql".format(table))
                self.logger.info("Done.")
            else:
                try:
+                   conn = session.connection()
+                   t1 = conn.begin()
                    self.logger.info("Sending data to target MSSQL instance...(Fast [BULK INSERT])")
+
+                   os.system("echo 'EXEC master..sp_addsrvrolemember @loginame = '{0}', @rolename = 'bulkadmin'' | isql {1} {0} {2} -d{3} -v".format(username, dsn, password, db_name))
                    conn.execute("BULK INSERT {0} FROM '{0}.sql' WITH ( \
                                      fieldterminator = '|,', \
                                      rowterminator = '\n' \
                                    );".format(table))
+                   t1.commit()
                except sqlalchemy.exc.ProgrammingError as e:
-                   self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. (It is likely that you are running on Azure SQL). \n" + \
+                   self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. [It is likely that you are running on Azure SQL (no bulk insert feature), or AWS SQL Server(no bulkadmin role)]. \n" + \
                                          "*****************************************************************************\n" + \
-                                         "**** Re-run with 'self.destination_is_azure = True' **...but expect slow data transfer. ****\n" + \
+                                         "**** Re-run with 'self.enable_mssql_bulk_insert = False' **...but expect slow data transfer. ****\n" + \
                                          "*****************************************************************************\n" + \
                                          "\nOriginal Exception: " + str(e))
                    exit(1)        
-               t1.commit()
                self.logger.info("Done.")
            #os.system("cat payload.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name))    
-           #os.system("rm payload.sql")
        elif self.dst_engine.dialect.name.lower() == "mysql":
            username = self.dst_engine.url.username
            password = self.dst_engine.url.password
@@ -406,7 +417,6 @@ class ETLAlchemySource():
                          --compress --local --fields-terminated-by=\",\" --fields-enclosed-by=\"'\" --fields-escaped-by='\\' \
                          --columns={3} --lines-terminated-by=\"\n\" \
                          {4} {5}.sql ".format(host, username, password, ",".join(columns), db_name, table))
-           os.system("rm {0}.sql".format(table))
            self.logger.info("Done.")
        elif self.dst_engine.dialect.name.lower() == "postgresql":
            #TODO: Take advantage of psql> COPY FROM <payload.sql> WITH DELIMITER AS ","
@@ -428,19 +438,18 @@ class ETLAlchemySource():
            #os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
            conn.commit()
            conn.close()
-           os.system("rm {0}.sql".format(table))
            self.logger.info("Done.")
 
        elif self.dst_engine.dialect.name.lower() == "sqlite":
            db_name = self.dst_engine.url.database
            self.logger.info("Sending data to target sqlite instance...(Fast [.import])")
-           os.system("echo '.mode csv {0}\n.import {0}.sql {0}' | sqlite3 {1}".format(table, db_name))
+           os.system("echo \".separator '|'\n.nullvalue NULL\n.import {0}.sql {0}\" | sqlite3 {1}".format(table, db_name))
+           # ** Note values will be inserted as 'NULL' if they are NULL.
            """
            with open("{0}.sql".format(table), "r") as fp:
                for line in fp.readlines():
                    self.dst_engine.execute(line)
            """
-           os.system("rm {0}.sql".format(table))
            self.logger.info("Done.")
        elif self.dst_engine.dialect.name.lower() == "oracle":
            with open("{0}.sql".format(table), "r") as fp_orcl:
@@ -454,6 +463,12 @@ class ETLAlchemySource():
                    self.logger.info("Inserted '{0}' rows".format(str(lines_inserted)))
        else:
            raise Exception("Not Implemented!")
+       # Cleanup...
+       self.logger.info("Cleaning up '{0}'.sql".format(table))
+       #if table == "employees":
+       #    exit(1)
+       os.remove("{0}.sql".format(table))
+       self.logger.info("Done")
    """
       Dumps the data to a file called <table_name>.sql.
       Depending on the DB Target, either a CSV will be generated
@@ -472,7 +487,7 @@ class ETLAlchemySource():
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
            with open("{0}.sql".format(T.name), "a+") as fp:                   
-               if self.destination_is_azure == True and self.dst_engine.dialect.name.lower() == "mssql":
+               if self.enable_mssql_bulk_insert == False and self.dst_engine.dialect.name.lower() == "mssql":
                    dump_sql_statement(T.insert().values(map(lambda r: dict(zip(self.current_ordered_table_columns, r)), raw_rows)), fp, self.dst_engine, T.name)
                elif self.dst_engine.dialect.name.lower() == "oracle":
                    self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
@@ -555,6 +570,7 @@ class ETLAlchemySource():
 
 
        for table_name in TablesIterator:
+
            #######################
            ### Time each table...
            #######################
@@ -603,11 +619,6 @@ class ETLAlchemySource():
                ###################################
                ### Grab raw rows for data type checking...
                ##################################
-               #selectable = self.engine.execute(T_src.select())
-               #rows = selectable.fetchall()
-
-
-
                self.logger.info("Building query to fetch all rows from {0}".format(T_src.name))
                cnt = src_session.query(T_src).count() #self.engine.execute(T_src.count())
                resultProxy = self.engine.execute(T_src.select())
@@ -622,6 +633,11 @@ class ETLAlchemySource():
                    self.logger.info("Fetched {0} rows".format(str(i * buffer_size)))
                    rows += resultProxy.fetchmany(buffer_size)
                rows += resultProxy.fetchmany(cnt % buffer_size)
+               # Don't rely on Python garbage collection...
+               resultProxy.close()
+
+               assert(cnt == len(rows))
+               
                raw_rows = [row for row in rows]
                self.logger.info("Done")
                pks = []
@@ -1033,7 +1049,7 @@ class ETLAlchemySource():
        #if dt.seconds > 3600:
        #    timeString += (str(int(dt.seconds / 3600)) + ":")
        timeString += str(dt.seconds / 60) + "m:" + str(dt.seconds % 60) + "s"
-       print """
+       self.logger.info("""
        ========================
        === * Sync Summary * ===
        ========================\n
@@ -1059,13 +1075,13 @@ class ETLAlchemySource():
        ========================\n
        Unique Constraint Violations:     {10}
        ========================\n
-       Total Time:                       {7}\n\n""".format(str(self.tableCount), str(self.emptyTableCount), str(self.tableCount-self.emptyTableCount),str(self.columnCount),str(self.nullColumnCount),str(self.columnCount-self.nullColumnCount),str(self.referentialIntegrityViolations), timeString, str(self.totalIndexes), str(self.totalFKs), str(self.uniqueConstraintViolationCount), str(self.skippedIndexCount), str(self.indexCount), str(self.skippedFKCount), str(self.fkCount), str(self.deletedTableCount), str(self.deletedColumnCount)) 
+       Total Time:                       {7}\n\n""".format(str(self.tableCount), str(self.emptyTableCount), str(self.tableCount-self.emptyTableCount),str(self.columnCount),str(self.nullColumnCount),str(self.columnCount-self.nullColumnCount),str(self.referentialIntegrityViolations), timeString, str(self.totalIndexes), str(self.totalFKs), str(self.uniqueConstraintViolationCount), str(self.skippedIndexCount), str(self.indexCount), str(self.skippedFKCount), str(self.fkCount), str(self.deletedTableCount), str(self.deletedColumnCount))) 
        #self.logger.warning("Referential Integrity Violations: \n" + "\n".join(self.riv_arr))
        self.logger.warning("Unique Constraint Violations: " + "\n".join(self.uniqueConstraintViolations))
 
    
    
-       print """
+       self.logger.info("""
        =========================
        === ** TIMING INFO ** ===
        =========================
@@ -1084,12 +1100,12 @@ class ETLAlchemySource():
             _))       ((_
            '--'       '--'
        __________________________
-       """
+       """)
        for (table_name, timings) in self.times.iteritems():
-           print table_name
+           self.logger.info(table_name)
            for key in timings.keys():
-               print "-- " + str(key) + ": " + str(timings[key])
-           print "_________________________"
+               self.logger.info("-- " + str(key) + ": " + str(timings[key]))
+           self.logger.info("_________________________")
    
        self.schemaTransformer.failed_transformations = list(self.schemaTransformer.failed_transformations)
        if len(self.schemaTransformer.failed_transformations) > 0:

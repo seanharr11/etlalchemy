@@ -44,20 +44,21 @@ class SchemaTransformer():
         self.logger.propagate = False
         self.global_renamed_col_suffixes = global_renamed_col_suffixes
         #Load column mappings
-
-        with open(column_transform_file, "rU") as fp:
-            dr = csv.DictReader(fp)
-            for row in dr:
-                st = self.ColumnTransformation(row)
-                if self.columnTransformations.get(st.oldTable) == None:
-                    self.columnTransformations[st.oldTable] = {}
-                self.columnTransformations[st.oldTable][st.oldColumn] = st
+        if column_transform_file:
+            with open(column_transform_file, "rU") as fp:
+                dr = csv.DictReader(fp)
+                for row in dr:
+                    st = self.ColumnTransformation(row)
+                    if self.columnTransformations.get(st.oldTable) == None:
+                        self.columnTransformations[st.oldTable] = {}
+                    self.columnTransformations[st.oldTable][st.oldColumn] = st
         #Load table mappings
-        with open(table_transform_file, "rU") as fp:
-            dr = csv.DictReader(fp)
-            for row in dr:
-                st = self.TableTransformation(row)
-                self.tableTransformations[st.oldTable] = st
+        if table_transform_file:
+            with open(table_transform_file, "rU") as fp:
+                dr = csv.DictReader(fp)
+                for row in dr:
+                    st = self.TableTransformation(row)
+                    self.tableTransformations[st.oldTable] = st
     def transform_table(self, table):
         thisTableTT = self.tableTransformations.get(table.name.lower())
         # Update table name

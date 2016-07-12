@@ -1,7 +1,7 @@
 import decimal
 import datetime
 
-def _stringify_as_literal_value_for_csv(value, dialect):
+def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
     if isinstance(value, basestring):
         value = value.replace("'", "''")
@@ -51,7 +51,7 @@ def _stringify_as_literal_value_for_csv(value, dialect):
                     "Don't know how to literal-quote value %r" % value)            
 
 
-def _stringify_as_literal_value(value, dialect):
+def _generate_literal_value(value, dialect):
     dialect_name = dialect.name.lower()
     if isinstance(value, basestring):
         value = value.replace("'", "''")
@@ -95,7 +95,7 @@ def _stringify_as_literal_value(value, dialect):
         raise NotImplementedError(
                     "Don't know how to literal-quote value %r" % value)            
 
-def dump_oracle_insert_statements(fp, engine, table, raw_rows, columns):        
+def dump_to_oracle_insert_statements(fp, engine, table, raw_rows, columns):        
    ##################################
    ### No Bulk Insert available in Oracle
    ##################################
@@ -110,10 +110,10 @@ def dump_oracle_insert_statements(fp, engine, table, raw_rows, columns):
        for i in range(0, num_rows):
            if i == num_rows-1:
                # Last row...
-               buffr += "SELECT " + ",".join(map(lambda c: _stringify_as_literal_value(c, dialect), raw_rows[i])) + \
+               buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
                        " FROM DUAL\n"
            else:
-               buffr += "SELECT " + ",".join(map(lambda c: _stringify_as_literal_value(c, dialect), raw_rows[i])) + \
+               buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
                        " FROM DUAL UNION ALL\n"
        fp.write(buffr)
         
@@ -123,16 +123,16 @@ def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
     buffr = ""
     if dialect.name.lower() in ["postgresql", "sqlite"]:
         for r in raw_rows:
-            buffr += "|".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+            buffr += "|".join(map(lambda c: _generate_literal_value_for_csv(c, dialect), r))+ "\n"
     elif dialect.name.lower() in ["mssql"]:
         for r in raw_rows:
-            buffr += "|,".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+            buffr += "|,".join(map(lambda c: _generate_literal_value_for_csv(c, dialect), r))+ "\n"
     else:
         for r in raw_rows:
-            buffr += ",".join(map(lambda c: _stringify_as_literal_value_for_csv(c, dialect), r))+ "\n"
+            buffr += ",".join(map(lambda c: _generate_literal_value_for_csv(c, dialect), r))+ "\n"
     fp.write(buffr)
     
-def render_literal_value_global(value, dialect, type_):
+def generate_literal_value(value, dialect, type_):
     """Render the value of a bind parameter as a quoted literal.
 
     This is used for statement sections that do not accept bind paramters
@@ -142,9 +142,9 @@ def render_literal_value_global(value, dialect, type_):
     of the DBAPI.
 
     """
-    return _stringify_as_literal_value(value, dialect)
+    return _generate_literal_value(value, dialect)
 
-def dump_sql_statement(statement, fp, bind=None, table_name=None):
+def dump_to_sql_statement(statement, fp, bind=None, table_name=None):
     """
     print a query, with values filled in
     for debugging purposes *only*
@@ -173,7 +173,7 @@ def dump_sql_statement(statement, fp, bind=None, table_name=None):
                     literal_binds=literal_binds, **kwargs
             )
         def render_literal_value(self, value, type_):
-            return render_literal_value_global(value, dialect, type_)
+            return generate_literal_value(value, dialect, type_)
 
     compiler = LiteralCompiler(dialect, statement)
     
