@@ -29,22 +29,21 @@ import os
 # Parse the connection_string to find relevant info for each db engine #
 
 """
-    Each ETLAlchemySource instance handles the migration from 1 single SQL DB source.
-    When created, it is agnostic of its destination. The destination is passed to
-    the "migrate" function, so once the object is created, it can be sent to multiple
-    databases. Likewise, many of these instances can be created, with each instance
-    responsible for migration 1 SQL DB to a common, centralized SQL DB which will house
-    all previously fragmented DBs.
+ An instance of 'ETLAlchemySource' represents 1 DB. This DB can be sent to multiple
+ 'ETLAlchemyTargets' via calls to ETLAlchemySource.migrate(). See samples for info...
 """
 
 class ETLAlchemySource():
    def __init__(self,\
-                 url,\
+                 conn_string,\
                  global_ignored_col_suffixes=['crtd_db_ind', 'transmit_ind'],\
                  global_renamed_col_suffixes={},\
                  column_schema_transformation_file=None,\
                  table_schema_transformation_file=None,\
-                 included_tables=None, excluded_tables=None,\
+                 included_tables=None,\
+                 excluded_tables=None,\
+                 skip_table_if_empty=False,\
+                 skip_column_if_empty=False,\
                  dill_cleaner_file=None,\
                  dill_mapper_file=None,
                  log_file=None):
@@ -92,7 +91,7 @@ class ETLAlchemySource():
        self.engine = None
        self.connection = None
        self.orm = None
-       self.database_url = url
+       self.database_url = conn_string
 
        self.columnCount = 0
        self.tableCount = 0
@@ -107,8 +106,8 @@ class ETLAlchemySource():
        self.uniqueConstraintViolations = []
        self.uniqueConstraintViolationCount = 0
 
-       self.skipColumnIfEmpty = True
-       self.skipTableIfEmpty = False
+       self.skipColumnIfEmpty = skip_table_if_empty
+       self.skipTableIfEmpty = skip_column_if_empty
 
        self.totalIndexes = 0
        self.indexCount = 0
@@ -319,7 +318,7 @@ class ETLAlchemySource():
        ### Run Table Transformations
        ################################
        """ This will update the table 'T' in-place (i.e. change the table's name) """
-       if self.schemaTransformer.transform_table(T) == None:
+       if self.schemaTransformer.transform_table(T) == False:
            self.logger.info(" ---> Table ({0}) is scheduled to be deleted according to table transformations...".format(T.name))
            # Clean up FKs and Indexes on this table...
            del self.indexes[T.name]
@@ -370,6 +369,8 @@ class ETLAlchemySource():
    def sendData(self, table, columns):
        Session = sessionmaker(bind=self.dst_engine)
        session = Session()
+       data_file_path = os.getcwd() + "/" + table + ".sql"
+
        self.logger.info("Transferring data from local file '{0}' to target DB".format(table + ".sql"))
        if self.dst_engine.dialect.name.lower() == "mssql":
            username = self.dst_engine.url.username
@@ -382,7 +383,7 @@ class ETLAlchemySource():
                ### ... we resort to a Large INSERT statement
                ######################################
                self.logger.info("Sending data to target MSSQL instance...(Slow - enable_mssql_bulk_insert = False)")
-               os.system("cat {4}.sql | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name, table))    
+               os.system("cat {4} | isql {0} {1} {2} -d{3} -v".format(dsn, username, password, db_name, data_file_path))    
                self.logger.info("Done.")
            else:
                try:
@@ -390,11 +391,10 @@ class ETLAlchemySource():
                    t1 = conn.begin()
                    self.logger.info("Sending data to target MSSQL instance...(Fast [BULK INSERT])")
 
-                   os.system("echo 'EXEC master..sp_addsrvrolemember @loginame = '{0}', @rolename = 'bulkadmin'' | isql {1} {0} {2} -d{3} -v".format(username, dsn, password, db_name))
-                   conn.execute("BULK INSERT {0} FROM '{0}.sql' WITH ( \
+                   conn.execute("BULK INSERT {0} FROM '{1}' WITH ( \
                                      fieldterminator = '|,', \
                                      rowterminator = '\n' \
-                                   );".format(table))
+                                   );".format(data_file_path, table))
                    t1.commit()
                except sqlalchemy.exc.ProgrammingError as e:
                    self.logger.critical("BULK INSERT operation not supported on your target MSSQL server instance. [It is likely that you are running on Azure SQL (no bulk insert feature), or AWS SQL Server(no bulkadmin role)]. \n" + \
@@ -410,13 +410,11 @@ class ETLAlchemySource():
            password = self.dst_engine.url.password
            db_name = self.dst_engine.url.database
            host = self.dst_engine.url.host
-           #os.system("echo payload.sql | mysql -h{0} -u{1} -p{2} {3}".format(host, username, password, db_name)) 
-           #TODO: Take advantage of "mysqlimport -compress"
            self.logger.info("Sending data to target MySQL instance...(Fast [mysqlimport])")
            os.system("mysqlimport -v -h{0} -u{1} -p{2} \
                          --compress --local --fields-terminated-by=\",\" --fields-enclosed-by=\"'\" --fields-escaped-by='\\' \
                          --columns={3} --lines-terminated-by=\"\n\" \
-                         {4} {5}.sql ".format(host, username, password, ",".join(columns), db_name, table))
+                         {4} {5}".format(host, username, password, ",".join(columns), db_name, data_file_path))
            self.logger.info("Done.")
        elif self.dst_engine.dialect.name.lower() == "postgresql":
            #TODO: Take advantage of psql> COPY FROM <payload.sql> WITH DELIMITER AS ","
@@ -424,18 +422,15 @@ class ETLAlchemySource():
            password = self.dst_engine.url.password
            db_name = self.dst_engine.url.database
            host = self.dst_engine.url.host
-           full_file_path = os.getcwd() + "/" +  table + ".sql"
            import psycopg2
            conn = psycopg2.connect("host='{0}' port='5432' dbname='{1}' user='{2}' password='{3}'".format(host, db_name,username,password))
            cur = conn.cursor()
            # Legacy method (doesn't work if not superuser, and if file is LOCAL
-           cmd = """COPY {0} ({1}) FROM '{2}' WITH CSV QUOTE '''' ESCAPE '\\' """.format(table, ",".join(columns), full_file_path, "'")
+           cmd = """COPY {0} ({1}) FROM '{2}' WITH CSV QUOTE '''' ESCAPE '\\' """.format(table, ",".join(columns), data_file_path, "'")
            self.logger.info("Sending data to target Postgresql instance...(Fast [COPY ... FROM ... WITH CSV]): \n ----> {0}".format(cmd))
-           with open(full_file_path, 'r') as fp_psql:
+           with open(data_file_path, 'r') as fp_psql:
+               # Most use command below, which loads data_file from STDIN to work-around permissions issues...
                cur.copy_from(fp_psql, str(table), null="NULL", sep="|", columns=tuple(map(lambda c: str(c), columns)))
-               #cur.copy_expert(cmd, fp_psql)
-           #self.dst_engine.execute(cmd)
-           #os.system("export PGPASSWORD='{0}'; cat payload.sql | psql -h{1} -U{2} -d{3}".format(password, host, username, db_name))
            conn.commit()
            conn.close()
            self.logger.info("Done.")
@@ -443,7 +438,7 @@ class ETLAlchemySource():
        elif self.dst_engine.dialect.name.lower() == "sqlite":
            db_name = self.dst_engine.url.database
            self.logger.info("Sending data to target sqlite instance...(Fast [.import])")
-           os.system("echo \".separator '|'\n.nullvalue NULL\n.import {0}.sql {0}\" | sqlite3 {1}".format(table, db_name))
+           os.system("echo \".separator '|'\n.nullvalue NULL\n.import {0} {1}\" | sqlite3 {2}".format(data_file_path, table, db_name))
            # ** Note values will be inserted as 'NULL' if they are NULL.
            """
            with open("{0}.sql".format(table), "r") as fp:
@@ -452,7 +447,7 @@ class ETLAlchemySource():
            """
            self.logger.info("Done.")
        elif self.dst_engine.dialect.name.lower() == "oracle":
-           with open("{0}.sql".format(table), "r") as fp_orcl:
+           with open(data_file_path, "r") as fp_orcl:
                lines_inserted = 0
                while True:
                    next_n_lines = list(islice(fp_orcl, 1001))
@@ -465,28 +460,27 @@ class ETLAlchemySource():
            raise Exception("Not Implemented!")
        # Cleanup...
        self.logger.info("Cleaning up '{0}'.sql".format(table))
-       #if table == "employees":
-       #    exit(1)
-       os.remove("{0}.sql".format(table))
+       os.remove(data_file_path)
        self.logger.info("Done")
+
    """
-      Dumps the data to a file called <table_name>.sql.
+      Dumps the data to a file called <table_name>.sql in the CWD.
       Depending on the DB Target, either a CSV will be generated
       for optimized BULK IMPORT, or an INSERT query will be generated
       if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
    """
    def dumpData(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
-
-        """"""""""""""""""""
-        """ *** LOAD *** """
-        """"""""""""""""""""
         t_start_load = datetime.now()
         conn = self.dst_engine.connect()
         s = sessionMaker(bind=conn)
+        data_file_path = os.getcwd() + "/{0}.sql".format(T.name)
+        if os.path.isfile(data_file_path):
+            os.remove(data_file_path)
+        
         if not T_dst_exists:
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
-           with open("{0}.sql".format(T.name), "a+") as fp:                   
+           with open(data_file_path, "a+") as fp:                   
                if self.enable_mssql_bulk_insert == False and self.dst_engine.dialect.name.lower() == "mssql":
                    dump_sql_statement(T.insert().values(map(lambda r: dict(zip(self.current_ordered_table_columns, r)), raw_rows)), fp, self.dst_engine, T.name)
                elif self.dst_engine.dialect.name.lower() == "oracle":
@@ -515,33 +509,34 @@ class ETLAlchemySource():
            ################################
            ### Now upsert each row...
            ################################
-           self.logger.info("Upserting " + str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
+           self.logger.info("Creating 'upsert' statements for '" + str(len(raw_rows)) + "' rows, and dumping to '" + str(T.name) + ".sql'.")
           
            init_len = len(raw_rows)
            for r in range(init_len-1, -1, -1):
                uid = ""
                row = raw_rows[r]
                for pk in pks:
-                   uid += str(row[pk])
+                   uid += str(row[self.current_ordered_table_columns[pk]])
                if upsertDict.get(uid):
-                   with open("{0}.sql".format(T.name), "a+") as fp:
-                       fp.write(printquery((T.update()\
-                               .where(and_(*tuple(map(lambda pk: T.columns[pk] == row[pk], pks))))\
-                               .values(row)), self.dst_engine, T.name))
+                   with open(data_file_path, "a+") as fp:
+                       stmt = T.update()\
+                               .where(and_(*tuple(map(lambda pk: T.columns[pk] == row[self.current_ordered_table_columns.index(pk)], pks))))\
+                               .values(dict(zip(self.current_ordered_table_columns, row)))
+                       dump_sql_statement(stmt, fp, self.dst_engine, T.name)
                    del raw_rows[r]
            #################################
            ### Insert the remaining rows...
            #################################
-           self.logger.info("Inserting (the remaining)  "+str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
+           self.logger.info("Creating 'insert' statements for (the remaining)  "+ str(len(raw_rows)) + " rows, and dumping to '" + str(T.name) + ".sql' (because they DNE in the table!).")
            insertionCount = (len(raw_rows) / 1000) + 1
            raw_row_len = len(raw_rows)
            if len(raw_rows) > 0:
                self.logger.info(" ({0}) -- Inserting remaining '{0}' rows.".format(str(raw_row_len)))
-               with open("{0}.sql".format(T.name), "a+") as fp:
-                   fp.write(print_query(T.insert().values(raw_rows), fp, self.dst_engine, T.name))
+               with open(data_file_path, "a+") as fp:
+                   dump_sql_statement(T.insert().values(raw_rows), fp, self.dst_engine, T.name)
         conn.close()
    ## TODO: Have a 'Create' option for each table... 
-   def migrate(self, destination_database_url, load_data=False, load_schema=False):
+   def migrate(self, destination_database_url, migrate_data=True, migrate_schema=True):
        """"""""""""""""""""""""
        """ ** REFLECTION ** """
        """"""""""""""""""""""""
@@ -593,7 +588,7 @@ class ETLAlchemySource():
            self.indexes[table_name] = self.insp.get_indexes(table_name)
            self.fks[table_name] = self.insp.get_foreign_keys(table_name)
            self.logger.info("Loaded indexes and FKs for table '{0}'".format(table_name))
-           if load_schema == True:
+           if migrate_schema == True:
                T = Table(table_name, dst_meta)
                ###############################
                ### Check if DST table exists...
@@ -695,7 +690,7 @@ class ETLAlchemySource():
                dst_meta.reflect(self.dst_engine)
                insp = inspect(self.dst_engine)
                insp.reflecttable(T, None)
-               if load_data == True:
+               if migrate_data == True:
                    self.logger.info("Transforming & Inserting "+ str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
                    # Create buffers of "1000" rows
                    #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
@@ -770,7 +765,7 @@ class ETLAlchemySource():
            ####################################
            table_transform = self.schemaTransformer.tableTransformations.get(table_name)
            column_transformer = self.schemaTransformer.columnTransformations.get(table_name)
-           if table_transform and table_transform.action.lower() == "rename":
+           if table_transform and table_transform.newTable not in ["", None]:
                # Update the table_name
                table_name = table_transform.newTable
            this_idx_count = 0               
@@ -792,7 +787,7 @@ class ETLAlchemySource():
                    #####################################
                    #### Check for Column Transformations...
                    #####################################
-                   if column_transformer and column_transformer.get(c) and column_transformer[c].action.lower() == 'rename':
+                   if column_transformer and column_transformer.get(c) and column_transformer[c].newColumn not in ["", None]:
                        c = column_transformer[c].newColumn
                    #####################################
                    ### Check to see if the table and colum nexist
@@ -903,7 +898,7 @@ class ETLAlchemySource():
            ### has been transformed...
            ####################################
            table_transform = self.schemaTransformer.tableTransformations.get(table_name)
-           if table_transform and table_transform.action.lower() == "rename":
+           if table_transform and table_transform.newTable not in ["", None]:
                # Update the table_name
                table_name = table_transform.newTable
            self.logger.info("Adding FKs to table '{0}' (previously {1})".format(table_name, pre_transformed_table_name)) 
@@ -930,7 +925,7 @@ class ETLAlchemySource():
                #####################################
                constrained_columns = []
                for c in fk['constrained_columns']:
-                   if cons_column_transformer and cons_column_transformer.get(c) and cons_column_transformer[c].action.lower() == 'rename':
+                   if cons_column_transformer and cons_column_transformer.get(c) and cons_column_transformer[c].newColumn not in ["", None]:
                        c = cons_column_transformer[c].newColumn
                    constrained_columns.append(c)
                constrained_cols = map(lambda x: T.columns.get(x), constrained_columns)
@@ -951,7 +946,7 @@ class ETLAlchemySource():
                ####################################
                table_transform = self.schemaTransformer.tableTransformations.get(ref_table)
                ref_column_transformer = self.schemaTransformer.columnTransformations.get(ref_table)
-               if table_transform and table_transform.action.lower() == "rename":
+               if table_transform and table_transform.newTable not in ["", None]:
                    # Update the table_name
                    ref_table = table_transform.newTable
                T_ref = Table(ref_table, dst_meta)
@@ -973,7 +968,7 @@ class ETLAlchemySource():
                ############################
                ref_columns = []
                for c in fk['referred_columns']:
-                   if ref_column_transformer and ref_column_transformer.get(c) and ref_column_transformer[c].action.lower() == 'rename':
+                   if ref_column_transformer and ref_column_transformer.get(c) and ref_column_transformer[c].newColumns not in ["", None]:
                        c = ref_column_transformer[c].newColumn
                    ref_columns.append(c)
                referred_columns = map(lambda x: T_ref.columns.get(x), ref_columns)

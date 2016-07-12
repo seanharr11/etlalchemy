@@ -5,9 +5,9 @@ import logging
 
 
 class ETLAlchemyTarget():
-    def __init__(self, destination, drop_database=False):
+    def __init__(self, conn_string, drop_database=False):
         self.drop_database = drop_database
-        self.destination = destination
+        self.conn_string = conn_string
         ##########################
         ### Right now we only assume  sql database...
         ##########################
@@ -26,10 +26,10 @@ class ETLAlchemyTarget():
         if not getattr(source, 'migrate'):
             raise NotImplemented("Source '" + str(source) + "' has no function 'migrate'...")
         self.sources.append(source)
-    def migrate(self, database_name=None):
+    def migrate(self, migrate_schema=True, migrate_data=True, migrate_fks=True, migrate_indexes=True):
         if self.drop_database == True:
             """ DROP THE DATABASE IF drop_database IS SET TO TRUE"""
-            dst_engine = create_engine(self.destination)
+            dst_engine = create_engine(self.conn_string)
             
             self.logger.info(dst_engine.dialect.name)
             #dst_engine.execute("select name from sys.sysdatabases where dbid=db_id()")
@@ -54,20 +54,22 @@ class ETLAlchemyTarget():
             else:
                 if dst_engine.url and database_exists(dst_engine.url):
                     self.logger.warning(dst_engine.url)
-                    self.logger.warning("Dropping database '{0}'".format(self.destination.split("/")[-1]))
+                    self.logger.warning("Dropping database '{0}'".format(self.conn_string.split("/")[-1]))
                     drop_database(dst_engine.url)
-                    self.logger.info("Creating database '{0}'".format(self.destination.split("/")[-1]))
+                    self.logger.info("Creating database '{0}'".format(self.conn_string.split("/")[-1]))
                     create_database(dst_engine.url)
                 else:
                     self.logger.info("Database DNE...no need to nuke it.")
                     create_database(dst_engine.url)
         for source in self.sources:
-            self.logger.info("Sending source '" + str(source) + "' to destination '" + str(self.destination) + "'")
-            source.migrate(self.destination, load_schema=True, load_data=True)
-            source.add_indexes(self.destination)
-            if dst_engine.dialect.name.lower() == "mssql":
-                self.logger.warning("** SKIPPING 'Add Foreign Key Constraints' BECAUSE 'sqlalchemy_migrate' DOES NOT SUPPORT fk.create() ON *MSSQL*")
-            else:
-                source.add_fks(self.destination)
+            self.logger.info("Sending source '" + str(source) + "' to destination '" + str(self.conn_string) + "'")
+            source.migrate(self.conn_string, migrate_schema=migrate_schema, migrate_data=migrate_data)
+            if migrate_indexes:
+                source.add_indexes(self.conn_string)
+            if migrate_fks:
+                if dst_engine.dialect.name.lower() == "mssql":
+                    self.logger.warning("** SKIPPING 'Add Foreign Key Constraints' BECAUSE 'sqlalchemy_migrate' DOES NOT SUPPORT fk.create() ON *MSSQL*")
+                else:
+                    source.add_fks(self.conn_string)
             source.print_timings()
 

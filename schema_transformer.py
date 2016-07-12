@@ -1,32 +1,27 @@
 import logging
 import csv
+import sqlalchemy
 
 class SchemaTransformer():
 
     class TableTransformation():
         def __init__(self, stRow):
-            self.action = stRow['Action'].lower()
-            self.oldTable = stRow['Old Table']
-            self.newTable = stRow['New Table']
+            self.delete = stRow['Delete'].lower() in ["true", "1"]
+            self.oldTable = stRow['Table Name']
+            self.newTable = stRow['New Table Name']
 
         def __str__(self):
             return "({0}) ".format(self.action) + self.oldTable + " => " + self.newTable
     
     class ColumnTransformation():
         def __init__(self, stRow):
-            self.action = stRow['Action'].lower()
-            self.oldTable = stRow['Old Table']
-            self.oldColumn = stRow['Old Column']
-            self.newColumn = stRow['New Column']
-            self.typeOverride = stRow['Type Override']
-        def newType(self):
-            if self.typeOverride.lower() == "datetime":
-                return Datetime()
-            elif self.typeOverride.lower() == "date":
-                return Date()
-            else:
-                return None
-
+            self.delete = stRow['Delete'].lower() in ["true", "1"]
+            self.oldTable = stRow['Table Name']
+            self.oldColumn = stRow['Column Name']
+            self.newColumn = stRow['New Column Name']
+            self.newType = stRow['New Column Type']
+        def new_type(self):
+            return getattr(sqlalchemy.types, self.newType)
         def __str__(self):
             return self.oldTable + "." + self.oldColumn
     
@@ -59,19 +54,19 @@ class SchemaTransformer():
                 for row in dr:
                     st = self.TableTransformation(row)
                     self.tableTransformations[st.oldTable] = st
+    
+    # Returns False if deleted...
     def transform_table(self, table):
         thisTableTT = self.tableTransformations.get(table.name.lower())
         # Update table name
         if thisTableTT:
-            if thisTableTT.action.lower() == "rename":
+            if thisTableTT.delete ==  True:
+                return False
+            if thisTableTT.newTable not in ["", None]:
                 self.logger.info(" ----> Renaming table '{0}' to '{1}'".format(table.name, thisTableTT.newTable))
                 table.name = thisTableTT.newTable
                 return True
-            elif thisTableTT.action.lower() == "delete":
-                return None
-        return False
-
-
+        return True
     # Returns 'True' if an action is defined for the column... 
     def transform_column(self, C, tablename, columns):
         # Find Column...
@@ -82,36 +77,39 @@ class SchemaTransformer():
        
         if thisTableST:
             st = thisTableST.get(C.name)
-            if st and st.action.lower() in ["delete", "rename"]:
-                if st.action.lower() == "delete":
+            if st:
+                if st.delete == True:
                     # Remove the column from the list of columns...
                     del columns[idx]
                     actionApplied = True
-                elif st.action.lower() == "rename":
-                    self.logger.info(" ----> Renaming column '{0}' => '{1}'".format(C.name, st.newColumn))
-                    C.name = st.newColumn
-                    columns[idx] = C.name
-                    actionApplied = True
-            else:
-                if st:
-                    self.logger.warning(" ----> Action '{0}' not yet implemented, ignoring...".format(st.action))
+                else:
+                    # Rename the column if a "New Column Name" is specificed
+                    if st.newColumn not in ["", None]:
+                        self.logger.info(" ----> Renaming column '{0}' => '{1}'".format(C.name, st.newColumn))
+                        C.name = st.newColumn
+                        columns[idx] = C.name
+                        actionApplied = True
+                    # Change the type of the column if a "New Column Type" is specified
+                    if st.newType not in ["", None]:
+                        old_type = C.type.__class__.__name__
+                        try:
+                            C.type = st.new_type()
+                        except Exception as e:
+                            self.logger.critical("**Couldn't change column type of '{0}' to '{1}'**".format(C.name, st.newType))
+                            self.logger.critical(e)
+                            raise e
+                    else:
+                        self.logger.warning("Schema transformation defined for column '{0}', but no action was taken...".format(C.name))
         
         if actionApplied == False:
             # Then the column had no 'action' applied to it...
             for k in self.global_renamed_col_suffixes.keys():
                 # Check if column name ends with specfiic suffix
                 if initialColumnName.lower().endswith(k.lower()):
-                    self.logger.info(" ---> Renaming column '{0}' to GLOBAL default '{1}' because it contains '{2}'".format(initialColumnName.lower(), self.global_renamed_col_suffixes[k], k.lower()))
-                    C.name = self.global_renamed_col_suffixes[k]
+                    self.logger.info(" ---> Renaming column '{0}' to GLOBAL default '{1}' because it contains '{2}'"\
+                            .format(initialColumnName.lower(), initialColumnName.replace(k, self.global_renamed_col_suffixes[k]), k.lower()))
+                    C.name = initialColumnName.replace(k, self.global_renamed_col_suffixes[k])
                     columns[idx] = C.name
-        ############################
-        ### Now update the type ###
-        ############################
-        if thisTableST and thisTableST.get(initialColumnName):
-            st = thisTableST.get(initialColumnName)
-            if st.newType():
-                C.type = st.newType()
-    
         return columns
 
     def transform_rows(self, rows, columns, tablename):
