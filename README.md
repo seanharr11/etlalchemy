@@ -23,7 +23,7 @@ _Sources in first column, destinations in first row (DB Size: 4 million rows, 15
 | **MySQL** |4m:38s|4m:31s|61m:27s|63m:16s|2m:18s|
 | **Postgresql** |5m:9s|4m:24s|58m:9s|61m:29s|3m:11s|
 | **MSSQL** |5m:58s|5m:26s|![alt text][failure]|60m:8s|5m:17s|
-| **Oracle** |40m:14s|39m:25s|82m:26s|![alt text][failure]|![alt text][failure]|
+| **Oracle** |40m:14s|39m:25s|82m:26s|![alt text][failure]|4m:0s|
 | **SQLite** |4m:51s|4m:51s|67m:29s|![alt text][failure]|2m:11s|
 
 # Examples
@@ -43,7 +43,7 @@ target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localh
 target.addSource(source)
 target.migrate()
 ```
-**Migrate Schema ONLY**
+**Only migrate schema, or only Data, or only FKs, or only Indexes (or any combination of the 4!)**
 ```python
 from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
 
@@ -79,4 +79,34 @@ target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localh
 target.addSource(source)
 target.migrate()
 ```
+**Alter schema (change column names, column types, table names, and Drop tables/columns)**
+```python
+from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+# See below for the simple structure of the .csv's for schema changes
+source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
+                          column_schema_transformation_file=os.getcwd() + "/transformations/column_mappings.csv",\
+                          table_schema_transformation_file=os.getcwd() + "/transformations/table_mappings.csv")
+target = ETLAlchemyTarget(conn_string="postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
+target.addSource(source)
+target.migrate()
+```
+| *column_mappings.csv* | *table_mappings.csv* |
+| :--- | :--- |
+|Column Name,Table Name,New Column Name,New Column Type,Delete|Table Name,New Table Name,Delete|
+|last_name,employees,,,True|table_to_rename,new_table_name,False|
+|fired,employees,,Boolean,False|table_to_delete,,True|
+|birth_date,employees,dob,,False|departments,dept,False|
+
+**Rename any column which ends in a given 'suffix' (or skip the column during migration)**
+```python
+from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+# global_renamed_col_suffixes is useful to standardize column names across tables (like the date example below)
+source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
+                          global_ignored_col_suffixes=['drop_all_columns_that_end_in_this'],\
+                          global_renamed_col_suffixes={'date': 'dt'},\ #i.e. "created_date -> created_dt"
+target = ETLAlchemyTarget(conn_string="postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
+target.addSource(source)
+target.migrate()
+```
+
 
