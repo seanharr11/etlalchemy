@@ -24,7 +24,7 @@ _Sources in first column, destinations in first row (DB Size: 4 million rows, 15
 | **Postgresql** |5m:9s|4m:24s|58m:9s|61m:29s|3m:11s|
 | **MSSQL** |5m:58s|5m:26s|57m:38s|60m:8s|5m:17s|
 | **Oracle** |40m:14s|39m:25s|82m:26s|![alt text][failure]|4m:0s|
-| **SQLite** |4m:51s|4m:51s|67m:29s|![alt text][failure]|2m:11s|
+| **SQLite** |4m:51s|4m:51s|67m:29s|64m:22s|2m:11s|
 
 1. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
   * 'SQL Loader' can be used on Oracle, and the 'BULK INSERT' operation can be used on MSSQL, however the former is a PITA to install, and the latter is not supported in several MSSQL environments (see 'Known Limitations' below).
