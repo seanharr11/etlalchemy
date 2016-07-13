@@ -341,11 +341,11 @@ class ETLAlchemySource():
         """ *** TRANSFORMATION *** """
         """"""""""""""""""""""""""""""
         # Transform the data first
-        if self.cleaners.get(T_src.name):
+        #if self.cleaners.get(T_src.name):
             #TODO: Finish Implementing TableCleaner.clean(rows)
-            TC = TableCleaner(T_src)
-            TC.loadCleaners(self.cleaners[table_name])
-            TC.clean(raw_rows)
+            #TC = TableCleaner(T_src)
+            #TC.loadCleaners(self.cleaners[table_name])
+            #TC.clean(raw_rows)
         # Transform the schema second (by updating the column names [keys of dict])
         self.schemaTransformer.transform_rows(raw_rows, self.current_ordered_table_columns, T_src.name)
        
@@ -474,18 +474,16 @@ class ETLAlchemySource():
         conn = self.dst_engine.connect()
         s = sessionMaker(bind=conn)
         data_file_path = os.getcwd() + "/{0}.sql".format(T.name)
-        if os.path.isfile(data_file_path):
-            os.remove(data_file_path)
         
         if not T_dst_exists:
            # Table "T" DNE in the destination table prior to this entire 
            # migration process. We can naively INSERT all rows in the buffer
            with open(data_file_path, "a+") as fp:                   
                if self.enable_mssql_bulk_insert == False and self.dst_engine.dialect.name.lower() == "mssql":
-                   dump_sql_statement(T.insert().values(map(lambda r: dict(zip(self.current_ordered_table_columns, r)), raw_rows)), fp, self.dst_engine, T.name)
+                   dump_to_sql_statement(T.insert().values(map(lambda r: dict(zip(self.current_ordered_table_columns, r)), raw_rows)), fp, self.dst_engine, T.name)
                elif self.dst_engine.dialect.name.lower() == "oracle":
                    self.logger.warning("** BULK INSERT operation not supported by Oracle. Expect slow run-time.\nThis utilty should be run on the target host to descrease network latency for given this limitation...")
-                   dump_oracle_insert_statements(fp, self.dst_engine, T.name, raw_rows, self.current_ordered_table_columns)
+                   dump_to_oracle_insert_statements(fp, self.dst_engine, T.name, raw_rows, self.current_ordered_table_columns)
                else:
                    dump_to_csv(fp, T.name, self.current_ordered_table_columns, raw_rows, self.dst_engine.dialect)
         else:
@@ -540,7 +538,12 @@ class ETLAlchemySource():
        """"""""""""""""""""""""
        """ ** REFLECTION ** """
        """"""""""""""""""""""""
-       self.engine = create_engine(self.database_url)
+       buffer_size = 10000
+       
+       if self.database_url.split(":")[0] == "oracle+cx_oracle":
+           self.engine = create_engine(self.database_url, arraysize=buffer_size)
+       else:
+           self.engine = create_engine(self.database_url)
        self.insp = reflection.Inspector.from_engine(self.engine)
        self.table_names = self.insp.get_table_names()
        
@@ -623,7 +626,7 @@ class ETLAlchemySource():
                j = 0
                self.logger.info("Loading all rows into memory...")
                rows = []
-               buffer_size = 10000
+               
                for i in range(1, (cnt / buffer_size) + 1):
                    self.logger.info("Fetched {0} rows".format(str(i * buffer_size)))
                    rows += resultProxy.fetchmany(buffer_size)
@@ -687,6 +690,11 @@ class ETLAlchemySource():
                """"""""""""""""""""""""""""""
                """" *** INSERT ROWS *** """""
                """"""""""""""""""""""""""""""
+               data_file_path = os.getcwd() + "/{0}.sql".format(T.name)
+               if os.path.isfile(data_file_path):
+                   os.remove(data_file_path)
+               # Delete the old file if it esists (i.e. if a previous run went bad and didn't clean up...)
+
                dst_meta.reflect(self.dst_engine)
                insp = inspect(self.dst_engine)
                insp.reflecttable(T, None)
@@ -717,7 +725,7 @@ class ETLAlchemySource():
                    ################################################################
                    ### Now *actually* load the data via fast-CLI utilities
                    ################################################################
-                   self.sendData(T.name, self.current_ordered_table_columns) # From <table_name>.sql
+                       self.sendData(T.name, self.current_ordered_table_columns) # From <table_name>.sql
 
                t_stop_load = datetime.now()
                
@@ -1117,7 +1125,7 @@ class ETLAlchemySource():
        ### Write 'Deleted' columns out to a file...
        ###########################################
        removedColumns = self.deletedColumns + self.nullColumns
-       with open("./transformations/deletedColumns.csv", "w") as fp:
+       with open("deletedColumns.csv", "w") as fp:
            fp.write("\n".join(map(lambda c: c.replace(".", ","), removedColumns)))
    
 
