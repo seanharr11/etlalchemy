@@ -543,6 +543,7 @@ class ETLAlchemySource():
            try:
                self.engine = create_engine(self.database_url, arraysize=buffer_size)
            except ImportError as e:
+               name = str(e).split(" ")[3]
                self.logger.critical("""
                    ************************************************************************************************************************
                    ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
@@ -553,13 +554,14 @@ class ETLAlchemySource():
                    **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
                    **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
                    ************************************************************************************************************************
-               """.format(self.database_url, e.name))
+               """.format(self.database_url, name))
 
                raise e
        else:
            try:
                self.engine = create_engine(self.database_url)
            except ImportError as e:
+               name = str(e).split(" ")[3]
                self.logger.critical("""
                    ************************************************************************************************************************
                    ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
@@ -570,13 +572,14 @@ class ETLAlchemySource():
                    **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
                    **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
                    ************************************************************************************************************************
-               """.format(self.database_url, e.name))
+               """.format(self.database_url, name))
                raise e
        self.insp = reflection.Inspector.from_engine(self.engine)
        self.table_names = self.insp.get_table_names()
        try:
            self.dst_engine = create_engine(destination_database_url)
        except ImportError as e:
+           name = str(e).split(" ")[3]
            self.logger.critical("""
                ************************************************************************************************************************
                ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
@@ -587,7 +590,7 @@ class ETLAlchemySource():
                **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
                **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
                ************************************************************************************************************************
-           """.format(self.database_url, e.name))
+           """.format(self.database_url, name))
            raise e
        dst_meta = MetaData()
        
