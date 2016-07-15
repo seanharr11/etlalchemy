@@ -1,5 +1,4 @@
 from itertools import islice
-import MySQLdb
 from literal_value_generator import dump_to_sql_statement, dump_to_csv, dump_to_oracle_insert_statements
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
@@ -541,13 +540,55 @@ class ETLAlchemySource():
        buffer_size = 10000
        
        if self.database_url.split(":")[0] == "oracle+cx_oracle":
-           self.engine = create_engine(self.database_url, arraysize=buffer_size)
+           try:
+               self.engine = create_engine(self.database_url, arraysize=buffer_size)
+           except ImportError as e:
+               self.logger.critical("""
+                   ************************************************************************************************************************
+                   ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
+                   ************************************************************************************************************************
+                   ** This is because 1 of 2 reasons:
+                   **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
+                   **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
+                   **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
+                   **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
+                   ************************************************************************************************************************
+               """.format(self.database_url, e.name))
+
+               raise e
        else:
-           self.engine = create_engine(self.database_url)
+           try:
+               self.engine = create_engine(self.database_url)
+           except ImportError as e:
+               self.logger.critical("""
+                   ************************************************************************************************************************
+                   ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
+                   ************************************************************************************************************************
+                   ** This is because 1 of 2 reasons:
+                   **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
+                   **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
+                   **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
+                   **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
+                   ************************************************************************************************************************
+               """.format(self.database_url, e.name))
+               raise e
        self.insp = reflection.Inspector.from_engine(self.engine)
        self.table_names = self.insp.get_table_names()
-       
-       self.dst_engine = create_engine(destination_database_url)
+       try:
+           self.dst_engine = create_engine(destination_database_url)
+       except ImportError as e:
+           self.logger.critical("""
+               ************************************************************************************************************************
+               ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
+               ************************************************************************************************************************
+               ** This is because 1 of 2 reasons:
+               **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
+               **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
+               **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
+               **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
+               ************************************************************************************************************************
+           """.format(self.database_url, e.name))
+           raise e
        dst_meta = MetaData()
        
        Session = sessionmaker(bind=self.dst_engine)
