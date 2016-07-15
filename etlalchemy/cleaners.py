@@ -1,8 +1,5 @@
 #########################
-## We may want to option to
-### to apply lambda to the 'cleaned' entry,
-### or change the TYPE (int, decimal, etc...) to an integer
-### from, say, a VARCHAR string...
+# This is a TODO!!! Not complete at all..
 #########################
 class Cleaner():
     def __init__(self, name, search_re, lam, table, column):

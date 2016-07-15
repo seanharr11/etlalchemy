@@ -546,17 +546,18 @@ class ETLAlchemySource():
             host = self.dst_engine.url.host
             import psycopg2
             conn = psycopg2.connect(
-                "host='{0}' " +
-                "port='5432' " +
-                "dbname='{1}' " +
-                "user='{2}' " +
-                "password='{3}'".format(
-                    host, db_name, username, password))
+                """
+                host='{0}'
+                port='5432'
+                dbname='{1}'
+                user='{2}'
+                password='{3}'
+                """.format(host, db_name, username, password))
             cur = conn.cursor()
             # Legacy method (doesn't work if not superuser, and if file is
             # LOCAL
-            cmd = """COPY {0} ({1}) FROM '{2}' \
-                    WITH CSV QUOTE '''' \
+            cmd = """COPY {0} ({1}) FROM '{2}'
+                    WITH CSV QUOTE ''''
                     ESCAPE '\\' """.format(
                 table, ",".join(columns), data_file_path, "'")
             self.logger.info(
@@ -1133,8 +1134,8 @@ class ETLAlchemySource():
                     try:
                         I.create(self.dst_engine)
                     except sqlalchemy.exc.OperationalError as e:
-                        self.logger.warning(str(e) + " -- it is likely
-                                            that the Index already exists...")
+                        self.logger.warning(str(e) + " -- it is likely " +
+                                            "that the Index already exists...")
                         self.skippedIndexCount += 1
                         continue
                     idx_count += 1
