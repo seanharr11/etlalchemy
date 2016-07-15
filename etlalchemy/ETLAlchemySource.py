@@ -49,6 +49,7 @@ class ETLAlchemySource():
                  skip_table_if_empty=False,
                  skip_column_if_empty=False,
                  log_file=None):
+
         self.logger = logging.getLogger("ETLAlchemySource")
         self.logger.propagate = False
         handler = logging.StreamHandler()
@@ -85,7 +86,7 @@ class ETLAlchemySource():
         self.current_ordered_table_columns = []
         self.cleaners = {}
 
-        self.schemaTransformer = SchemaTransformer(
+        self.schema_transformer = SchemaTransformer(
             column_transform_file=column_schema_transformation_file,
             table_transform_file=table_schema_transformation_file,
             global_renamed_col_suffixes=global_renamed_col_suffixes)
@@ -99,31 +100,31 @@ class ETLAlchemySource():
         self.orm = None
         self.database_url = conn_string
 
-        self.columnCount = 0
-        self.tableCount = 0
-        self.emptyTableCount = 0
-        self.emptyTables = []
-        self.deletedTableCount = 0
-        self.deletedColumnCount = 0
-        self.deletedColumns = []
-        self.nullColumnCount = 0
-        self.nullColumns = []
-        self.referentialIntegrityViolations = 0
-        self.uniqueConstraintViolations = []
-        self.uniqueConstraintViolationCount = 0
+        self.column_count = 0
+        self.table_count = 0
+        self.empty_table_count = 0
+        self.empty_tables = []
+        self.deleted_table_count = 0
+        self.deleted_column_count = 0
+        self.deleted_columns = []
+        self.null_column_count = 0
+        self.null_columns = []
+        self.referential_integrity_violations = 0
+        self.unique_constraint_violations = []
+        self.unique_constraint_violation_count = 0
 
-        self.skipColumnIfEmpty = skip_table_if_empty
-        self.skipTableIfEmpty = skip_column_if_empty
+        self.skip_column_if_empty = skip_table_if_empty
+        self.skip_table_if_empty = skip_column_if_empty
 
-        self.totalIndexes = 0
-        self.indexCount = 0
-        self.skippedIndexCount = 0
+        self.total_indexes = 0
+        self.index_count = 0
+        self.skipped_index_count = 0
 
-        self.totalFKs = 0
-        self.fkCount = 0
-        self.skippedFKCount = 0
+        self.total_fks = 0
+        self.fk_count = 0
+        self.skipped_fk_count = 0
         # Config
-        self.checkReferentialIntegrity = False
+        self.check_referential_integrity = False
         self.riv_arr = []
         self.start = datetime.now()
 
@@ -131,7 +132,7 @@ class ETLAlchemySource():
 
         self.times = {}  # Map Tables to Names...
 
-    def standardizeColumnType(self, column, raw_rows):
+    def standardize_column_type(self, column, raw_rows):
         old_column_class = column.type.__class__
         column_copy = Column(column.name,
                              column.type,
@@ -184,21 +185,21 @@ class ETLAlchemySource():
             # Determine whether this is a Date
             # or Datetime field
             ###################################
-            typeCount = {}
+            type_count = {}
             types = set([])
             for row in raw_rows:
                 data = row[
                     self.current_ordered_table_columns.index(
                         column.name)]
                 types.add(data.__class__.__name__)
-                if typeCount.get(data.__class__.__name__):
-                    typeCount[data.__class__.__name__] += 1
+                if type_count.get(data.__class__.__name__):
+                    type_count[data.__class__.__name__] += 1
                 else:
-                    typeCount[data.__class__.__name__] = 1
+                    type_count[data.__class__.__name__] = 1
                 if data is not None:
                     null = False
-            self.logger.warning(str(typeCount))
-            if typeCount.get("datetime"):
+            self.logger.warning(str(type_count))
+            if type_count.get("datetime"):
                 column_copy.type = DateTime()
             else:
                 column_copy.type = Date()
@@ -213,17 +214,17 @@ class ETLAlchemySource():
             mantissa_max_value = 0
             intCount = 0
             maxDigit = 0
-            typeCount = {}
+            type_count = {}
             types = set([])
             for row in raw_rows:
                 data = row[
                     self.current_ordered_table_columns.index(
                         column.name)]
                 types.add(data.__class__.__name__)
-                if typeCount.get(data.__class__.__name__):
-                    typeCount[data.__class__.__name__] += 1
+                if type_count.get(data.__class__.__name__):
+                    type_count[data.__class__.__name__] += 1
                 else:
-                    typeCount[data.__class__.__name__] = 1
+                    type_count[data.__class__.__name__] = 1
                 ######################
                 # Check for NULL data
                 # (We will drop column if all rows contain null)
@@ -252,7 +253,7 @@ class ETLAlchemySource():
                     intCount += 1
                     maxDigit = data if data > maxDigit else maxDigit
             self.logger.info(" --> " + str(column.name) +
-                             "..." + str(typeCount))
+                             "..." + str(type_count))
             if mantissa_max_value > 0:
                 total_left_digits = max(
                     len(str(maxDigit)), (mantissa_max_digits))
@@ -307,7 +308,7 @@ class ETLAlchemySource():
             column_copy.type.__class__ = column.type.__class__.__bases__[0]
         return column_copy
 
-    def addOrEliminateColumn(
+    def add_or_eliminate_column(
             self,
             T,
             T_dst_exists,
@@ -332,7 +333,7 @@ class ETLAlchemySource():
         oldColumns = self.current_ordered_table_columns
         oldColumnsLength = len(self.current_ordered_table_columns)
         self.current_ordered_table_columns = \
-            self.schemaTransformer.transform_column(
+            self.schema_transformer.transform_column(
                 column_copy, T.name, self.current_ordered_table_columns)
         if oldColumnsLength != len(self.current_ordered_table_columns):
             # A column is scheduled to be deleted
@@ -340,8 +341,8 @@ class ETLAlchemySource():
                 " ------> Column '" +
                 cname +
                 "' is scheduled to be deleted -- **NOT** migrating this col..")
-            self.deletedColumnCount += 1
-            self.deletedColumns.append(table_name + "." + cname)
+            self.deleted_column_count += 1
+            self.deleted_columns.append(table_name + "." + cname)
             if T_dst_exists:
                 pass
                 # TODO: Delete the column from T_dst
@@ -359,9 +360,9 @@ class ETLAlchemySource():
                     column.name, str(old_column_class), column_copy.name, str(
                         column_copy.type.__class__)))
             return True
-        elif null and self.skipColumnIfEmpty:
-            self.nullColumnCount += 1
-            self.nullColumns.append(table_name + "." + column_copy.name)
+        elif null and self.skip_column_if_empty:
+            self.null_column_count += 1
+            self.null_columns.append(table_name + "." + column_copy.name)
             self.logger.warning(
                 "Column '" +
                 table_name +
@@ -386,28 +387,28 @@ class ETLAlchemySource():
                          str(column_copy.type.__class__))
             return True
 
-    def transformTable(self, T):
+    def transform_table(self, T):
         ################################
         # Run Table Transformations
         ################################
         """ This will update the table 'T' in-place
         (i.e. change the table's name)
         """
-        if not self.schemaTransformer.transform_table(T):
+        if not self.schema_transformer.transform_table(T):
             self.logger.info(
                 " ---> Table ({0}) is scheduled to be deleted " +
                 "according to table transformations...".format(T.name))
             # Clean up FKs and Indexes on this table...
             del self.indexes[T.name]
             del self.fks[T.name]
-            self.deletedTableCount += 1
-            self.deletedColumns += map(lambda c: T.name +
+            self.deleted_table_count += 1
+            self.deleted_columns += map(lambda c: T.name +
                                        "." + c.name, T.columns)
-            self.deletedColumnCount += len(T.columns)
+            self.deleted_column_count += len(T.columns)
             return None
         return True
 
-    def checkMultipleAutoincrementIssue(self, auto_inc_count, pk_count, T):
+    def check_multiple_autoincrement_issue(self, auto_inc_count, pk_count, T):
         if auto_inc_count > 0 and pk_count > 1:
             # and engine == MySQL.innoDB...
             self.logger.warning("""
@@ -427,7 +428,7 @@ class ETLAlchemySource():
                 if c.autoincrement and c.primary_key:
                     c.autoincrement = False
 
-    def transformData(self, T_src, raw_rows):
+    def transform_data(self, T_src, raw_rows):
         """"""""""""""""""""""""""""""
         """ *** TRANSFORMATION *** """
         """"""""""""""""""""""""""""""
@@ -439,10 +440,10 @@ class ETLAlchemySource():
         # TC.clean(raw_rows)
         # Transform the schema second (by updating the column names [keys of
         # dict])
-        self.schemaTransformer.transform_rows(
+        self.schema_transformer.transform_rows(
             raw_rows, self.current_ordered_table_columns, T_src.name)
 
-    def createTable(self, T_dst_exists, T):
+    def create_table(self, T_dst_exists, T):
         if not T_dst_exists:
             self.logger.info(" --> Creating table '{0}'".format(T.name))
             try:
@@ -462,7 +463,7 @@ class ETLAlchemySource():
             return True
             # We need to Upsert the data...
 
-    def sendData(self, table, columns):
+    def send_data(self, table, columns):
         Session = sessionmaker(bind=self.dst_engine)
         session = Session()
         data_file_path = os.getcwd() + "/" + table + ".sql"
@@ -616,7 +617,7 @@ class ETLAlchemySource():
       if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
    """
 
-    def dumpData(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
+    def dump_data(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
         t_start_load = datetime.now()
         conn = self.dst_engine.connect()
         s = sessionMaker(bind=conn)
@@ -775,7 +776,7 @@ class ETLAlchemySource():
             # Time each table...
             #######################
             self.times[table_name] = {}
-            self.tableCount += 1
+            self.table_count += 1
             self.logger.info("Migrating Table Schema '" + table_name + "'...")
             pk_count = 0
             auto_inc_count = 0
@@ -858,7 +859,7 @@ class ETLAlchemySource():
                 # TODO: Use column/table mappers, would need to update foreign
                 # keys...
                 for column in T_src.columns:
-                    self.columnCount += 1
+                    self.column_count += 1
                     ##############################
                     # Check for multiple primary
                     #  keys & auto-increment
@@ -871,19 +872,19 @@ class ETLAlchemySource():
                     ##############################
                     # Standardize Column Type
                     ##############################
-                    column_copy = self.standardizeColumnType(column, raw_rows)
+                    column_copy = self.standardize_column_type(column, raw_rows)
                     """"""""""""""""""""""""""""""
                     """ *** ELIMINATION I *** """
                     """"""""""""""""""""""""""""""
-                    self.addOrEliminateColumn(
+                    self.add_or_eliminate_column(
                         T, T_dst_exists, column, column_copy, raw_rows)
                 if self.dst_engine.dialect.name.lower() == "mysql":
                     #######################################
                     # Remove auto-inc on composite PK's
                     #######################################
-                    self.checkMultipleAutoincrementIssue(
+                    self.check_multiple_autoincrement_issue(
                         auto_inc_count, pk_count, T)
-                if self.transformTable(T) is None:
+                if self.transform_table(T) is None:
                     # Skip the table, it is scheduled to be deleted...
                     continue
                 elif len(T.columns) == 0:
@@ -891,17 +892,17 @@ class ETLAlchemySource():
                     self.logger.warning(
                         "Table '" + T.name + "' has all NULL columns, " +
                         "skipping...")
-                    self.emptyTableCount += 1
-                    self.emptyTables.append(T.name)
+                    self.empty_table_count += 1
+                    self.empty_tables.append(T.name)
                     continue
-                elif len(raw_rows) == 0 and self.skipTableIfEmpty:
+                elif len(raw_rows) == 0 and self.skip_table_if_empty:
                     self.logger.warning(
                         "Table '" + T.name + "' has 0 rows, skipping...")
-                    self.emptyTableCount += 1
-                    self.emptyTables.append(T.name)
+                    self.empty_table_count += 1
+                    self.empty_tables.append(T.name)
                     continue
                 else:
-                    tableCreationSuccess = self.createTable(T_dst_exists, T)
+                    tableCreationSuccess = self.create_table(T_dst_exists, T)
                     if not tableCreationSuccess:
                         continue
 
@@ -948,7 +949,7 @@ class ETLAlchemySource():
                                 str(virtualEndRow) +
                                 "...({0} Total)".format(
                                     str(raw_row_len)))
-                            self.transformData(
+                            self.transform_data(
                                 T_src, raw_rows[startRow:endRow])
                             self.logger.info(
                                 " ({0}) -- Dumping rows: ".format(
@@ -960,9 +961,9 @@ class ETLAlchemySource():
                                     str(raw_row_len),
                                     T.name))
 
-                            self.dumpData(
-                                T_dst_exists, T, raw_rows[
-                                    startRow:endRow], pks, Session)
+                            self.dump_data(
+                                T_dst_exists, T, raw_rows[startRow:endRow],
+                                pks, Session)
                             del raw_rows[startRow:endRow]
 
                         #######################################################
@@ -970,7 +971,7 @@ class ETLAlchemySource():
                         #######################################################
                         t_start_load = datetime.now()
                         # From <table_name>.sql
-                        self.sendData(
+                        self.send_data(
                             T.name, self.current_ordered_table_columns)
 
                 t_stop_load = datetime.now()
@@ -1027,9 +1028,9 @@ class ETLAlchemySource():
             # Check to see if table_name
             # has been transformed...
             ####################################
-            table_transform = self.schemaTransformer.tableTransformations\
+            table_transform = self.schema_transformer.tableTransformations\
                 .get(table_name)
-            column_transformer = self.schemaTransformer.columnTransformations\
+            column_transformer = self.schema_transformer.columnTransformations\
                 .get(table_name)
             if table_transform and table_transform.newTable not in ["", None]:
                 # Update the table_name
@@ -1038,7 +1039,7 @@ class ETLAlchemySource():
             self.logger.info("Creating indexes for '" + table_name + "'...")
             for i in indexes:
 
-                self.totalIndexes += 1
+                self.total_indexes += 1
                 session = Session()
                 col = i['column_names']
                 unique = i['unique']
@@ -1085,7 +1086,7 @@ class ETLAlchemySource():
                         cols += (dst_meta.tables.get(table_name).columns.
                                  get(c),)
                 if continueFlag:
-                    self.skippedIndexCount += 1
+                    self.skipped_index_count += 1
                     continue
                     # Don't create this Index - the table/column don't exist!
 
@@ -1123,10 +1124,10 @@ class ETLAlchemySource():
                         str(col) +
                         "' for unique index '" +
                         name)
-                    self.uniqueConstraintViolations.append(
+                    self.unique_constraint_violations.append(
                         name + " (" + str(col) + ")")
-                    self.uniqueConstraintViolationCount += violationCount
-                    self.skippedIndexCount += 1
+                    self.unique_constraint_violation_count += violationCount
+                    self.skipped_index_count += 1
                     # TODO: Gather bad rows...
                 else:
                     self.logger.info("Adding Index: " + str(I))
@@ -1136,7 +1137,7 @@ class ETLAlchemySource():
                     except sqlalchemy.exc.OperationalError as e:
                         self.logger.warning(str(e) + " -- it is likely " +
                                             "that the Index already exists...")
-                        self.skippedIndexCount += 1
+                        self.skipped_index_count += 1
                         continue
                     idx_count += 1
                     this_idx_count += 1
@@ -1150,7 +1151,7 @@ class ETLAlchemySource():
                 str(index_dt.seconds / 60) + "m:" + \
                 str(index_dt.seconds % 60) + "s"
 
-        self.indexCount = idx_count
+        self.index_count = idx_count
 
     def add_fks(self, destination_database_url):
         ############################
@@ -1196,7 +1197,7 @@ class ETLAlchemySource():
             # Check to see if table_name
             # has been transformed...
             ####################################
-            table_transform = self.schemaTransformer.tableTransformations.get(
+            table_transform = self.schema_transformer.tableTransformations.get(
                 table_name)
             if table_transform and table_transform.newTable not in ["", None]:
                 # Update the table_name
@@ -1218,15 +1219,15 @@ class ETLAlchemySource():
                     str(table_name) +
                     "' because the constrained table does not" +
                     " exist in the destination DB schema.")
-                self.skippedFKCount += len(self.fks[table_name])
-                self.totalFKs += len(self.fks[table_name])
+                self.skipped_fk_count += len(self.fks[table_name])
+                self.total_fks += len(self.fks[table_name])
                 continue  # on to the next table...
 
             for fk in fks:
                 cons_column_transformer = \
-                        self.schemaTransformer.columnTransformations.get(
+                        self.schema_transformer.columnTransformations.get(
                          pre_transformed_table_name)
-                self.totalFKs += 1
+                self.total_fks += 1
                 session = Session()
                 #####################################
                 # Check for Column Transformations...
@@ -1255,7 +1256,7 @@ class ETLAlchemySource():
                                         "' don't exist in the destination " +
                                         "DB schema.")
                     session.close()
-                    self.skippedFKCount += 1
+                    self.skipped_fk_count += 1
                     continue
                 ref_table = fk['referred_table']
 
@@ -1264,10 +1265,10 @@ class ETLAlchemySource():
                 # has been transformed...
                 ####################################
                 table_transform = \
-                    self.schemaTransformer.tableTransformations.get(
+                    self.schema_transformer.tableTransformations.get(
                                   ref_table)
                 ref_column_transformer = \
-                    self.schemaTransformer.columnTransformations.get(
+                    self.schema_transformer.columnTransformations.get(
                                   ref_table)
                 if table_transform and table_transform.newTable not in [
                         "", None]:
@@ -1291,7 +1292,7 @@ class ETLAlchemySource():
                         "' doesn't exist in the destination DB schema." +
                         " (FK Dependency not met)")
                     session.close()
-                    self.skippedFKCount += 1
+                    self.skipped_fk_count += 1
                     continue
                 ############################
                 # Check that referenced columns
@@ -1317,13 +1318,13 @@ class ETLAlchemySource():
                                         "' don't exist in the destination " +
                                         "DB schema.")
                     session.close()
-                    self.skippedFKCount += 1
+                    self.skipped_fk_count += 1
                     continue
 
                 ##################################
                 # Check for referential integrity violations
                 ##################################
-                if self.checkReferentialIntegrity:
+                if self.check_referential_integrity:
                     if self.dst_engine.dialect.name.upper(
                     ) in ["MYSQL", "POSTGRESQL"]:  # HACKS
                         self.logger.info(
@@ -1362,7 +1363,7 @@ class ETLAlchemySource():
                                                 " was violated '" +
                                                 str(len(bad_rows)) +
                                                 "' times.")
-                            self.referentialIntegrityViolations += len(
+                            self.referential_integrity_violations += len(
                                 bad_rows)
                             for row in bad_rows:
                                 self.riv_arr.append(str(row.values()))
@@ -1408,7 +1409,7 @@ class ETLAlchemySource():
                                 "FK creation was unsuccesful " +
                                 "(surpassed max number of FKs on 1 table" +
                                 "which all reference another table)")
-                            self.skippedFKCount += 1
+                            self.skipped_fk_count += 1
                             break
                     except sqlalchemy.exc.ProgrammingError as e:
                         # PostgreSQL Exception
@@ -1431,10 +1432,10 @@ class ETLAlchemySource():
                                "FK creation was unsuccesful (surpassed max " +
                                "number of FKs on 1 table which all reference" +
                                " another table)")
-                            self.skippedFKCount += 1
+                            self.skipped_fk_count += 1
                             break
 
-                self.fkCount += 1
+                self.fk_count += 1
             t_stop_constraint = datetime.now()
             constraint_dt = t_stop_constraint - t_start_constraint
             constraint_dt_str = str(constraint_dt.seconds / 60) + "m:" +\
@@ -1477,29 +1478,29 @@ class ETLAlchemySource():
        Unique Constraint Violations:     {10}
        ========================\n
        Total Time:                       {7}\n\n""".format(
-            str(self.tableCount),
-            str(self.emptyTableCount),
-            str(self.tableCount - self.emptyTableCount),
-            str(self.columnCount),
-            str(self.nullColumnCount),
-            str(self.columnCount - self.nullColumnCount),
-            str(self.referentialIntegrityViolations),
+            str(self.table_count),
+            str(self.empty_table_count),
+            str(self.table_count - self.empty_table_count),
+            str(self.column_count),
+            str(self.null_column_count),
+            str(self.column_count - self.null_column_count),
+            str(self.referential_integrity_violations),
             timeString,
-            str(self.totalIndexes),
-            str(self.totalFKs),
-            str(self.uniqueConstraintViolationCount),
-            str(self.skippedIndexCount),
-            str(self.indexCount),
-            str(self.skippedFKCount),
-            str(self.fkCount),
-            str(self.deletedTableCount),
-            str(self.deletedColumnCount)))
+            str(self.total_indexes),
+            str(self.total_fks),
+            str(self.unique_constraint_violation_count),
+            str(self.skipped_index_count),
+            str(self.index_count),
+            str(self.skipped_fk_count),
+            str(self.fk_count),
+            str(self.deleted_table_count),
+            str(self.deleted_column_count)))
         # self.logger.warning("Referential Integrity " +
         # "Violations: \n" + "\n".join(self.riv_arr))
         self.logger.warning(
             "Unique Constraint Violations: " +
             "\n".join(
-                self.uniqueConstraintViolations))
+                self.unique_constraint_violations))
 
         self.logger.info("""
        =========================
@@ -1534,24 +1535,24 @@ class ETLAlchemySource():
                 self.logger.info("-- " + str(key) + ": " + str(timings[key]))
             self.logger.info("_________________________")
 
-        self.schemaTransformer.failed_transformations = list(
-            self.schemaTransformer.failed_transformations)
-        if len(self.schemaTransformer.failed_transformations) > 0:
+        self.schema_transformer.failed_transformations = list(
+            self.schema_transformer.failed_transformations)
+        if len(self.schema_transformer.failed_transformations) > 0:
             self.logger.critical(
-                "\n".join(self.schemaTransformer.failed_transformations))
+                "\n".join(self.schema_transformer.failed_transformations))
             self.logger.critical("""
            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
            !!!! * '{0}' Old Columns had failed transformations !!!!
            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-           """.format(str(len(self.schemaTransformer.failed_transformations))))
+           """.format(str(len(self.schema_transformer.failed_transformations))))
 
             self.logger.critical(
-                "\n".join(self.schemaTransformer.failed_transformations))
+                "\n".join(self.schema_transformer.failed_transformations))
 
         ###########################################
         # Write 'Deleted' columns out to a file...
         ###########################################
-        removedColumns = self.deletedColumns + self.nullColumns
-        with open("deletedColumns.csv", "w") as fp:
+        removedColumns = self.deleted_columns + self.null_columns
+        with open("deleted_columns.csv", "w") as fp:
             fp.write("\n".join(map(lambda c:
                      c.replace(".", ","), removedColumns)))
