@@ -23,19 +23,19 @@ import inspect as ins
 import re
 import csv
 from schema_transformer import SchemaTransformer
+from etlalchemy_exceptions import DBApiNotFound
 import os
 
 # Parse the connection_string to find relevant info for each db engine #
 
 """
  An instance of 'ETLAlchemySource' represents 1 DB. This DB can be sent to multiple
- 'ETLAlchemyTargets' via calls to ETLAlchemySource.migrate(). See samples for info...
+ 'ETLAlchemyTargets' via calls to ETLAlchemySource.migrate(). See examples (on github) for info...
 """
-
 class ETLAlchemySource():
    def __init__(self,\
                  conn_string,\
-                 global_ignored_col_suffixes=['crtd_db_ind', 'transmit_ind'],\
+                 global_ignored_col_suffixes=[],\
                  global_renamed_col_suffixes={},\
                  column_schema_transformation_file=None,\
                  table_schema_transformation_file=None,\
@@ -43,8 +43,6 @@ class ETLAlchemySource():
                  excluded_tables=None,\
                  skip_table_if_empty=False,\
                  skip_column_if_empty=False,\
-                 dill_cleaner_file=None,\
-                 dill_mapper_file=None,
                  log_file=None):
        self.logger = logging.getLogger("ETLAlchemySource")
        self.logger.propagate = False
@@ -74,11 +72,8 @@ class ETLAlchemySource():
        self.enable_mssql_bulk_insert = False
 
        self.current_ordered_table_columns = []
-       if dill_cleaner_file:
-           self.cleaners = dill.load(dill_cleaner_file)
-       else:
-           self.cleaners = {}
-       
+       self.cleaners = {}
+
        self.schemaTransformer = SchemaTransformer(column_transform_file=column_schema_transformation_file,\
                                                   table_transform_file=table_schema_transformation_file,\
                                                   global_renamed_col_suffixes=global_renamed_col_suffixes)
@@ -543,55 +538,18 @@ class ETLAlchemySource():
            try:
                self.engine = create_engine(self.database_url, arraysize=buffer_size)
            except ImportError as e:
-               name = str(e).split(" ")[3]
-               self.logger.critical("""
-                   ************************************************************************************************************************
-                   ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
-                   ************************************************************************************************************************
-                   ** This is because 1 of 2 reasons:
-                   **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
-                   **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
-                   **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
-                   **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
-                   ************************************************************************************************************************
-               """.format(self.database_url, name))
-
-               raise e
+               raise DBApiNotFound(self.database_url)
        else:
            try:
                self.engine = create_engine(self.database_url)
            except ImportError as e:
-               name = str(e).split(" ")[3]
-               self.logger.critical("""
-                   ************************************************************************************************************************
-                   ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
-                   ************************************************************************************************************************
-                   ** This is because 1 of 2 reasons:
-                   **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
-                   **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
-                   **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
-                   **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
-                   ************************************************************************************************************************
-               """.format(self.database_url, name))
-               raise e
+               raise DBApiNotFound(self.database_url)
        self.insp = reflection.Inspector.from_engine(self.engine)
        self.table_names = self.insp.get_table_names()
        try:
            self.dst_engine = create_engine(destination_database_url)
        except ImportError as e:
-           name = str(e).split(" ")[3]
-           self.logger.critical("""
-               ************************************************************************************************************************
-               ** While creating the engine for '{0}', SQLAlchemy tried to import the database driver module for '{1}' but failed.
-               ************************************************************************************************************************
-               ** This is because 1 of 2 reasons:
-               **  --> 1.) You forgot to install the module '{1}'. (Try: 'pip install {1}')
-               **  --> 2.) If the above step fails, you most likely forgot to install the actual database driver
-               **  --> on your local machine! The driver is needed in order to install the Python DB API ('{0}')
-               **  --> (see 'https://seanharr11.github.io/installing-database-drivers' for instructions!!)
-               ************************************************************************************************************************
-           """.format(self.database_url, name))
-           raise e
+           raise DBApiNotFound(destination_database_url)
        dst_meta = MetaData()
        
        Session = sessionmaker(bind=self.dst_engine)
@@ -617,12 +575,12 @@ class ETLAlchemySource():
            ### Time each table...
            #######################
            self.times[table_name] = {}
-           t_start = datetime.now()
            self.tableCount += 1
-           self.logger.info("Syncing Table Schema '" + table_name + "'...")
+           self.logger.info("Migrating Table Schema '" + table_name + "'...")
            pk_count = 0
            auto_inc_count = 0
            
+           t_start_extract = datetime.now()
            T_src = Table(table_name, MetaData())
            try: 
                self.insp.reflecttable(T_src, None)
@@ -670,7 +628,7 @@ class ETLAlchemySource():
                j = 0
                self.logger.info("Loading all rows into memory...")
                rows = []
-               
+
                for i in range(1, (cnt / buffer_size) + 1):
                    self.logger.info("Fetched {0} rows".format(str(i * buffer_size)))
                    rows += resultProxy.fetchmany(buffer_size)
@@ -684,7 +642,8 @@ class ETLAlchemySource():
                self.logger.info("Done")
                pks = []
 
-
+               t_start_transform = datetime.now()
+              
                ## TODO: Use column/table mappers, would need to update foreign keys...
                for column in T_src.columns:
                    self.columnCount += 1
@@ -728,8 +687,6 @@ class ETLAlchemySource():
                    tableCreationSuccess = self.createTable(T_dst_exists, T)
                    if not tableCreationSuccess:
                        continue
-               t_start_clean = datetime.now()
-               t_start_load = datetime.now()
                    
                """"""""""""""""""""""""""""""
                """" *** INSERT ROWS *** """""
@@ -742,8 +699,10 @@ class ETLAlchemySource():
                dst_meta.reflect(self.dst_engine)
                insp = inspect(self.dst_engine)
                insp.reflecttable(T, None)
+               t_start_dump = datetime.now()
+               t_start_load = datetime.now()
                if migrate_data == True:
-                   self.logger.info("Transforming & Inserting "+ str(len(raw_rows)) + " rows into table '" + str(T.name) + "'.")
+                   self.logger.info("Transforming & Dumping "+ str(len(raw_rows)) + " total rows from table '" + str(T.name) + "' into '{0}'.".format(data_file_path))
                    # Create buffers of "1000" rows
                    #TODO: Parameterize "1000" as 'buffer_size' (should be configurable)
                    insertionCount = (len(raw_rows) / 1000) + 1
@@ -766,9 +725,11 @@ class ETLAlchemySource():
                              
                            self.dumpData(T_dst_exists, T, raw_rows[startRow:endRow], pks, Session)
                            del raw_rows[startRow:endRow]
-                   ################################################################
-                   ### Now *actually* load the data via fast-CLI utilities
-                   ################################################################
+                       
+                       ################################################################
+                       ### Now *actually* load the data via fast-CLI utilities
+                       ################################################################
+                       t_start_load = datetime.now()
                        self.sendData(T.name, self.current_ordered_table_columns) # From <table_name>.sql
 
                t_stop_load = datetime.now()
@@ -779,19 +740,22 @@ class ETLAlchemySource():
                ###################################
                #self.times[table_name] = [t_start, t_start_clean, t_start_load, t_start_index, t_start_constraint, t_stop]
                
-               extraction_dt = t_start_clean - t_start
+               extraction_dt = t_start_transform - t_start_extract
                extraction_dt_str = str(extraction_dt.seconds / 60) + "m:" + str(extraction_dt.seconds % 60) + "s"
 
-               transform_dt = t_start_load - t_start_clean
+               transform_dt = t_start_dump - t_start_transform
                transform_dt_str = str(transform_dt.seconds / 60) + "m:" + str(transform_dt.seconds % 60) + "s"
 
+               dump_dt = t_start_load - t_start_dump
+               dump_dt_str = str(dump_dt.seconds / 60) + "m:" + str(dump_dt.seconds % 60) + "s"
+               
                load_dt = t_stop_load - t_start_load
                load_dt_str = str(load_dt.seconds / 60) + "m:" + str(load_dt.seconds % 60) + "s"
-               
 
-               self.times[table_name]['Extraction Time'] = extraction_dt_str
-               self.times[table_name]['Transform Time'] = transform_dt_str
-               self.times[table_name]['Load Time'] = load_dt_str
+               self.times[table_name]['Extraction Time (From Source)'] = extraction_dt_str
+               self.times[table_name]['Transform Time (Schema)'] = transform_dt_str
+               self.times[table_name]['Data Dump Time (To File)'] = dump_dt_str
+               self.times[table_name]['Load Time (Into Target)'] = load_dt_str
                # End first table loop...
            
    def add_indexes(self, destination_database_url):
@@ -1122,7 +1086,24 @@ class ETLAlchemySource():
        ========================\n
        Unique Constraint Violations:     {10}
        ========================\n
-       Total Time:                       {7}\n\n""".format(str(self.tableCount), str(self.emptyTableCount), str(self.tableCount-self.emptyTableCount),str(self.columnCount),str(self.nullColumnCount),str(self.columnCount-self.nullColumnCount),str(self.referentialIntegrityViolations), timeString, str(self.totalIndexes), str(self.totalFKs), str(self.uniqueConstraintViolationCount), str(self.skippedIndexCount), str(self.indexCount), str(self.skippedFKCount), str(self.fkCount), str(self.deletedTableCount), str(self.deletedColumnCount))) 
+       Total Time:                       {7}\n\n""".format(\
+               str(self.tableCount),\
+               str(self.emptyTableCount),\
+               str(self.tableCount-self.emptyTableCount),\
+               str(self.columnCount),\
+               str(self.nullColumnCount),\
+               str(self.columnCount-self.nullColumnCount),\
+               str(self.referentialIntegrityViolations),\
+               timeString,\
+               str(self.totalIndexes),\
+               str(self.totalFKs),\
+               str(self.uniqueConstraintViolationCount),\
+               str(self.skippedIndexCount),\
+               str(self.indexCount),\
+               str(self.skippedFKCount),\
+               str(self.fkCount),\
+               str(self.deletedTableCount),\
+               str(self.deletedColumnCount))) 
        #self.logger.warning("Referential Integrity Violations: \n" + "\n".join(self.riv_arr))
        self.logger.warning("Unique Constraint Violations: " + "\n".join(self.uniqueConstraintViolations))
 
@@ -1148,9 +1129,16 @@ class ETLAlchemySource():
            '--'       '--'
        __________________________
        """)
+       ordered_timings = [\
+               "Extraction Time (From Source)",\
+               "Transform Time (Schema)",\
+               "Data Dump Time (To File)",\
+               "Load Time (Into Target)",\
+               "Indexing Time",\
+               "Constraint Time"]
        for (table_name, timings) in self.times.iteritems():
            self.logger.info(table_name)
-           for key in timings.keys():
+           for key in ordered_timings:
                self.logger.info("-- " + str(key) + ": " + str(timings[key]))
            self.logger.info("_________________________")
    

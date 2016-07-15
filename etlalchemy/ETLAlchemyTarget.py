@@ -1,3 +1,4 @@
+from etlalchemy_exceptions import DBApiNotFound
 from sqlalchemy_utils import database_exists, create_database, drop_database
 from sqlalchemy import create_engine, MetaData
 #import dill
@@ -29,8 +30,11 @@ class ETLAlchemyTarget():
     def migrate(self, migrate_schema=True, migrate_data=True, migrate_fks=True, migrate_indexes=True):
         if self.drop_database == True:
             """ DROP THE DATABASE IF drop_database IS SET TO TRUE"""
-            dst_engine = create_engine(self.conn_string)
-            
+            try:
+                dst_engine = create_engine(self.conn_string)
+            except ImportError as e:
+                raise DBApiNotFound(self.conn_string)
+
             self.logger.info(dst_engine.dialect.name)
             #dst_engine.execute("select name from sys.sysdatabases where dbid=db_id()")
             ############################
