@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
         name = 'etlalchemy',
         packages = ['etlalchemy'],
-        version = '0.1',
+        version = '0.1.1',
         description = 'Extract, Transform, Load. Migrate any SQL Database in 4 lines of code',
         author = 'Sean Harrington',
         author_email='seanharr11@gmail.com',
