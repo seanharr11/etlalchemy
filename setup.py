@@ -1,4 +1,4 @@
-from distutils.core import steup
+from distutils.core import setup
 setup(
         name = 'etlalchemy',
         packages = ['etlalchemy'],
