@@ -1,4 +1,4 @@
-# etl-alchemy
+# etlalchemy
 Extract, Transform and Load...Migrate any SQL Database to any other SQL DB with 4 Lines of Code.
 
 # Basic Usage
@@ -12,8 +12,8 @@ mysql_db_target.addSource(mssql_db_source)
 mysql_db_target.migrate()
 ````
 
-[success]: https://github.com/seanharr11/etl-alchemy/blob/performance/img/green_check.png "Success"
-[failure]: https://github.com/seanharr11/etl-alchemy/blob/performance/img/red_x.png "Failure"
+[success]: https://github.com/seanharr11/etlalchemy/blob/performance/img/green_check.png "Success"
+[failure]: https://github.com/seanharr11/etlalchemy/blob/performance/img/red_x.png "Failure"
 
 # Source -> Target: Performance/Timing Matrix
 _Sources in first column, destinations in first row (DB Size: 4 million rows, 150MB)_
@@ -28,7 +28,7 @@ _Sources in first column, destinations in first row (DB Size: 4 million rows, 15
 
 1. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
   * 'SQL Loader' can be used on Oracle, and the 'BULK INSERT' operation can be used on MSSQL, however the former is a PITA to install, and the latter is not supported in several MSSQL environments (see 'Known Limitations' below).
-  * 'BULK INSERT' *is supported* in etl-alchemy (with limited testing), but "SQL LOADER" is not (yet).
+  * 'BULK INSERT' *is supported* in etlalchemy (with limited testing), but "SQL LOADER" is not (yet).
 3. All tests were done using the same DB (see 'On Testing' below).
 3. Tests were NOT run from the target DB's server. *To ensure maximum performance, you should run this tool on the Target DB's Server!!!*.
 
@@ -36,7 +36,7 @@ _Sources in first column, destinations in first row (DB Size: 4 million rows, 15
 
 **Provide a list of tables to include/exclude in migration**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
 # Load ALL tables EXCEPT 'salaries'
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
@@ -51,7 +51,7 @@ target.migrate()
 ```
 **Only migrate schema, or only Data, or only FKs, or only Indexes (or any combination of the 4!)**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees")
 
@@ -63,7 +63,7 @@ target.migrate(migrate_fks=False, migrate_indexes=False, migrate_data=False, mig
 ```
 **Skip columns and tables if they are empty**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # This will skip tables with no rows (or all empty rows), and ignore them during schema migration
 # This will skip columns if they have all NULL values, and ignore them during schema migration
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
@@ -75,7 +75,7 @@ target.migrate()
 ```
 **Enable 'upserting' of data**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees")
 # This will leave the target DB as is, and if the tables being migrated from Source -> Target
@@ -87,7 +87,7 @@ target.migrate()
 ```
 **Alter schema (change column names, column types, table names, and Drop tables/columns)**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # See below for the simple structure of the .csv's for schema changes
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
                           column_schema_transformation_file=os.getcwd() + "/transformations/column_mappings.csv",\
@@ -105,7 +105,7 @@ target.migrate()
 
 **Rename any column which ends in a given 'suffix' (or skip the column during migration)**
 ```python
-from etl_alchemy import ETLAlchemySource, ETLAlchemyTarget
+from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # global_renamed_col_suffixes is useful to standardize column names across tables (like the date example below)
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
                           global_ignored_col_suffixes=['drop_all_columns_that_end_in_this'],\

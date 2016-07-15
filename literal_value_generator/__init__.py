@@ -100,22 +100,20 @@ def dump_to_oracle_insert_statements(fp, engine, table, raw_rows, columns):
    ### No Bulk Insert available in Oracle
    ##################################
    #TODO: Investigate "sqlldr" CLI utility to handle this load...
-   
-   with open("{0}.sql".format(table), "a+") as fp:
-       buffr = ("INSERT INTO {0} (".format(table) +\
-               ",".join(columns) +\
-                ")\n")
-       num_rows = len(raw_rows)
-       dialect = engine.dialect
-       for i in range(0, num_rows):
-           if i == num_rows-1:
-               # Last row...
-               buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
-                       " FROM DUAL\n"
-           else:
-               buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
-                       " FROM DUAL UNION ALL\n"
-       fp.write(buffr)
+   buffr = ("INSERT INTO {0} (".format(table) +\
+           ",".join(columns) +\
+            ")\n")
+   num_rows = len(raw_rows)
+   dialect = engine.dialect
+   for i in range(0, num_rows):
+       if i == num_rows-1:
+           # Last row...
+           buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
+                   " FROM DUAL\n"
+       else:
+           buffr += "SELECT " + ",".join(map(lambda c: _generate_literal_value(c, dialect), raw_rows[i])) + \
+                   " FROM DUAL UNION ALL\n"
+   fp.write(buffr)
         
 
 # Supported by [MySQL, Postgresql, sqlite, SQL server (non-Azure) ]
