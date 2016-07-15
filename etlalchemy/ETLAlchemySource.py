@@ -265,7 +265,7 @@ class ETLAlchemySource():
                         "Column '" +
                         column.name +
                         "' contains decimals and integers, " +
-                                "resorting to type 'Numeric'")
+                        "resorting to type 'Numeric'")
                 if column.primary_key:
                     self.logger.warning(
                         "Column '" +
@@ -275,9 +275,9 @@ class ETLAlchemySource():
                     self.logger.warning(
                         "Column '" +
                         column.name +
-                        "' is of type 'Decimal', but contains no mantissas > 0 " +
-                                "(i.e. 3.00, 2.00, etc..)\n " +
-                                "--Consider changing column type to 'Integer'")
+                        "' is of type 'Decimal', but contains no mantissas " +
+                        "> 0. (i.e. 3.00, 2.00, etc..)\n " +
+                        "--Consider changing column type to 'Integer'")
             else:
                 # 2^32 - 1
                 if maxDigit > 4294967295:
@@ -396,7 +396,7 @@ class ETLAlchemySource():
         if not self.schemaTransformer.transform_table(T):
             self.logger.info(
                 " ---> Table ({0}) is scheduled to be deleted " +
-                        "according to table transformations...".format(T.name))
+                "according to table transformations...".format(T.name))
             # Clean up FKs and Indexes on this table...
             del self.indexes[T.name]
             del self.fks[T.name]
@@ -455,8 +455,8 @@ class ETLAlchemySource():
                 return False
         else:
             self.logger.warning(
-                "Table '{0}' already exists - not creating table, reflecting to " +
-                        "get new changes instead..".format(T.name))
+                "Table '{0}' already exists - not creating table, " +
+                "reflecting to get new changes instead..".format(T.name))
             insp = inspect(self.dst_engine)
             insp.reflecttable(T, None)
             return True
@@ -483,7 +483,7 @@ class ETLAlchemySource():
                 ######################################
                 self.logger.info(
                     "Sending data to target MSSQL instance..." +
-                            "(Slow - enable_mssql_bulk_insert = False)")
+                    "(Slow - enable_mssql_bulk_insert = False)")
                 os.system("cat {4} | isql {0} {1} {2} -d{3} -v"
                           .format(dsn, username, password,
                                   db_name, data_file_path))
@@ -495,9 +495,9 @@ class ETLAlchemySource():
                     self.logger.info("Sending data to target MSSQL instance...\
                             (Fast [BULK INSERT])")
 
-                    conn.execute("""BULK INSERT {0} FROM '{1}' WITH (  
-                                     fieldterminator = '|,', \
-                                     rowterminator = '\n' \
+                    conn.execute("""BULK INSERT {0} FROM '{1}' WITH (
+                                     fieldterminator = '|,',
+                                     rowterminator = '\n'
                                    );""".format(data_file_path, table))
                     t1.commit()
                 except sqlalchemy.exc.ProgrammingError as e:
@@ -526,16 +526,16 @@ class ETLAlchemySource():
             self.logger.info(
                 "Sending data to target MySQL instance...(Fast [mysqlimport])")
             os.system("mysqlimport -v -h{0} -u{1} -p{2} " +
-                         "--compress " +
-                         "--local " +
-                         "--fields-terminated-by=\",\" " +
-                         "--fields-enclosed-by=\"'\" " +
-                         "--fields-escaped-by='\\' " +
-                         "--columns={3} " +
-                         "--lines-terminated-by=\"\n\" " +
-                         "{4} {5}".format(host, username, password,
-                                         ",".join(columns), db_name,
-                                         data_file_path))
+                      "--compress " +
+                      "--local " +
+                      "--fields-terminated-by=\",\" " +
+                      "--fields-enclosed-by=\"'\" " +
+                      "--fields-escaped-by='\\' " +
+                      "--columns={3} " +
+                      "--lines-terminated-by=\"\n\" " +
+                      "{4} {5}".format(host, username, password,
+                                       ",".join(columns), db_name,
+                                       data_file_path))
             self.logger.info("Done.")
         elif self.dst_engine.dialect.name.lower() == "postgresql":
             # TODO: Take advantage of psql> COPY FROM <payload.sql> WITH
@@ -561,8 +561,8 @@ class ETLAlchemySource():
                 table, ",".join(columns), data_file_path, "'")
             self.logger.info(
                 "Sending data to target Postgresql instance..." +
-                        "(Fast [COPY ... FROM ... WITH CSV]):" +
-                        "\n ----> {0}".format(cmd))
+                "(Fast [COPY ... FROM ... WITH CSV]):" +
+                "\n ----> {0}".format(cmd))
             with open(data_file_path, 'r') as fp_psql:
                 # Most use command below, which loads data_file from STDIN to
                 # work-around permissions issues...
@@ -578,9 +578,9 @@ class ETLAlchemySource():
                 "Sending data to target sqlite instance...(Fast [.import])")
             os.system(
                 "echo \".separator '|'\n" +
-                        ".nullvalue NULL\n" +
-                        ".import {0} {1} \"" +
-                        " | sqlite3 {2}".format(
+                ".nullvalue NULL\n" +
+                ".import {0} {1} \"" +
+                " | sqlite3 {2}".format(
                     data_file_path, table, db_name))
             # ** Note values will be inserted as 'NULL' if they are NULL.
             """
@@ -636,9 +636,9 @@ class ETLAlchemySource():
                 elif self.dst_engine.dialect.name.lower() == "oracle":
                     self.logger.warning(
                         "** BULK INSERT operation not supported by Oracle. " +
-                                "Expect slow run-time.\nThis utilty should be " +
-                                "run on the target host to descrease network " +
-                                "latency for given this limitation...")
+                        "Expect slow run-time.\nThis utilty should be " +
+                        "run on the target host to descrease network " +
+                        "latency for given this limitation...")
                     dump_to_oracle_insert_statements(
                             fp, self.dst_engine,
                             T.name, raw_rows,
@@ -657,9 +657,9 @@ class ETLAlchemySource():
             upsertDict = {}
             self.logger.info("Gathering unique columns for upsert.")
             if len(pks) == 0:
-                s = "There is no primary key defined on table '{0}'!\n " +
-                        "We are unable to Upsert into this table without " +
-                        "identifying unique rows based on PKs!"
+                s = "There is no primary key defined on table '{0}'!\n " +\
+                    "We are unable to Upsert into this table without " +\
+                    "identifying unique rows based on PKs!".format(T.name)
                 raise Exception(s)
             unique_columns = filter(lambda c: c.name.lower() in pks, T.columns)
             self.logger.info(
@@ -889,7 +889,7 @@ class ETLAlchemySource():
                     # TODO: Delete table from T_dst
                     self.logger.warning(
                         "Table '" + T.name + "' has all NULL columns, " +
-                                "skipping...")
+                        "skipping...")
                     self.emptyTableCount += 1
                     self.emptyTables.append(T.name)
                     continue
@@ -1050,8 +1050,9 @@ class ETLAlchemySource():
                 cols = ()
                 continueFlag = False
                 self.logger.info(
-                    "Checking validity of data indexed by: '{0}' (column = '{1}' " +
-                            " - table = '{2}')".format(
+                    "Checking validity of data indexed by: " +
+                    "'{0}' (column = '{1}' - table = '{2}')"
+                    .format(
                         name, str(col), table_name))
                 for c in col:
                     #####################################
@@ -1076,7 +1077,7 @@ class ETLAlchemySource():
                             table_name).columns.get(c)
                         if str(columnHolder) == 'None':
                             self.logger.warning(
-                                "Skipping index '" + str(name) + "' on column" +
+                                "Skipping index '" + str(name) + "' on col" +
                                 "' " + table_name + "." + c + "' because the" +
                                 " column DNE in the destination DB schema.")
                             continueFlag = True  # Skip to the next table...
@@ -1140,8 +1141,7 @@ class ETLAlchemySource():
                     this_idx_count += 1
             self.logger.info(
                 """ Done. (Added '{0}' indexes to '{1}')"""
-                .format(str(this_idx_count), table_name)
-                
+                .format(str(this_idx_count), table_name))
 
             t_stop_index = datetime.now()
             index_dt = t_stop_index - t_start_index
@@ -1158,8 +1158,8 @@ class ETLAlchemySource():
         dst_meta = MetaData()
         if self.dst_engine.dialect.name.lower() == "mssql":
             raise Exception(
-                "Adding Constraints to MSSQL is not supported
-                        by sqlalchemy_migrate...")
+                "Adding Constraints to MSSQL is not supported" +
+                " by sqlalchemy_migrate...")
         dst_meta.reflect(bind=self.dst_engine)
         dst_meta.bind = self.dst_engine
         Session = sessionmaker(bind=self.dst_engine)
@@ -1167,26 +1167,17 @@ class ETLAlchemySource():
         # HERE BE HACKS!!!!
         ##########################
         """
-          Problem: often times when porting DBs, data is old, not properly constrained
-          and overall messy. FK constraints get violated without DBAs knowing it (in
-          engines that don't enforce or support FK constraints...
+        Problem: often times when porting DBs, data is old, not properly
+        constrained and overall messy. FK constraints get violated without DBAs
+        knowing it (in engines that don't enforce or support FK constraints)
 
-          Hack: Turn off FK checks when porting FKs..
+        Hack: Turn off FK checks when porting FKs..
 
-          Better Solution: ...would be to insert data AFTER fks are inserted, row by
-          row, and ask the user to correct the row in question, or delete it, this
-          is more of a 'clean' operation than a 'sync'...
+        Better Solution: ...would be to insert data AFTER fks are inserted, row
+        by row, and ask the user to correct the row in question, or delete it,
+        this is more of a 'transform' operation than a 'Constraint' op...
+        """
 
-          Assumptions: We only support MySQL for this right now, PostgreSQL will be
-          next - it is easy to turn off FK checks on a per-table basis in psql...
-
-          TODO: Support PostgreSQL...
-
-       """
-
-        """""""""""""""""""""
-       "" ** CONSTRAIN ** ""
-       """""""""""""""""""""
         if self.dst_engine.dialect.name.upper() == "MYSQL":
             self.dst_engine.execute("SET foreign_key_checks = 0")
         elif self.dst_engine.dialect.name.upper() == "POSTGRESQL":
@@ -1224,14 +1215,16 @@ class ETLAlchemySource():
                 self.logger.warning(
                     "Skipping FK constraints on table '" +
                     str(table_name) +
-                    "' because the constrained table does not exist in the destination DB schema.")
+                    "' because the constrained table does not" +
+                    " exist in the destination DB schema.")
                 self.skippedFKCount += len(self.fks[table_name])
                 self.totalFKs += len(self.fks[table_name])
                 continue  # on to the next table...
 
             for fk in fks:
-                cons_column_transformer = self.schemaTransformer.columnTransformations.get(
-                    pre_transformed_table_name)
+                cons_column_transformer = \
+                        self.schemaTransformer.columnTransformations.get(
+                         pre_transformed_table_name)
                 self.totalFKs += 1
                 session = Session()
                 #####################################
@@ -1239,8 +1232,9 @@ class ETLAlchemySource():
                 #####################################
                 constrained_columns = []
                 for c in fk['constrained_columns']:
-                    if cons_column_transformer and cons_column_transformer.get(
-                            c) and cons_column_transformer[c].newColumn not in ["", None]:
+                    if cons_column_transformer and \
+                     cons_column_transformer.get(c) and \
+                     cons_column_transformer[c].newColumn not in ["", None]:
                         c = cons_column_transformer[c].newColumn
                     constrained_columns.append(c)
                 constrained_cols = map(
@@ -1257,7 +1251,8 @@ class ETLAlchemySource():
                                         str(fk['constrained_columns']) +
                                         "' on table '" +
                                         str(table_name) +
-                                        "' don't exist in the destination DB schema.")
+                                        "' don't exist in the destination " +
+                                        "DB schema.")
                     session.close()
                     self.skippedFKCount += 1
                     continue
@@ -1267,10 +1262,12 @@ class ETLAlchemySource():
                 # Check to see if table_name
                 # has been transformed...
                 ####################################
-                table_transform = self.schemaTransformer.tableTransformations.get(
-                    ref_table)
-                ref_column_transformer = self.schemaTransformer.columnTransformations.get(
-                    ref_table)
+                table_transform = \
+                    self.schemaTransformer.tableTransformations.get(
+                                  ref_table)
+                ref_column_transformer = \
+                    self.schemaTransformer.columnTransformations.get(
+                                  ref_table)
                 if table_transform and table_transform.newTable not in [
                         "", None]:
                     # Update the table_name
@@ -1290,7 +1287,8 @@ class ETLAlchemySource():
                         constraint_name +
                         "' because referenced table '" +
                         ref_table +
-                        "' doesn't exist in the destination DB schema. (FK Dependency not met)")
+                        "' doesn't exist in the destination DB schema." +
+                        " (FK Dependency not met)")
                     session.close()
                     self.skippedFKCount += 1
                     continue
@@ -1300,8 +1298,9 @@ class ETLAlchemySource():
                 ############################
                 ref_columns = []
                 for c in fk['referred_columns']:
-                    if ref_column_transformer and ref_column_transformer.get(
-                            c) and ref_column_transformer[c].newColumns not in ["", None]:
+                    if ref_column_transformer and \
+                     ref_column_transformer.get(c) and \
+                     ref_column_transformer[c].newColumns not in ["", None]:
                         c = ref_column_transformer[c].newColumn
                     ref_columns.append(c)
                 referred_columns = map(
@@ -1314,7 +1313,8 @@ class ETLAlchemySource():
                                         str(fk['referred_columns']) +
                                         "' on table '" +
                                         str(ref_table) +
-                                        "' don't exist in the destination DB schema.")
+                                        "' don't exist in the destination " +
+                                        "DB schema.")
                     session.close()
                     self.skippedFKCount += 1
                     continue
@@ -1344,7 +1344,8 @@ class ETLAlchemySource():
                         q = query2.filter(
                             and_(
                                 ~T.columns.get(
-                                    constrained_cols[0].name).in_(t), T.columns.get(
+                                    constrained_cols[0].name).in_(t),
+                                T.columns.get(
                                     constrained_cols[0].name) is not None))
                         bad_rows = session.execute(q).fetchall()
 
@@ -1367,10 +1368,10 @@ class ETLAlchemySource():
 
                     else:
                         self.logger.warning(
-                            "Adding constraints only supported/tested for MySQL")
-                        #raise NotImplemented("Referential Integrity Check is only tested for MySQL")
-                self.logger.info("Adding FK '" + constraint_name + "' to '" + 
-                                 table_name +"'")
+                            "Adding constraints only supported/tested for " +
+                            "MySQL")
+                self.logger.info("Adding FK '" + constraint_name + "' to '" +
+                                 table_name + "'")
                 session.close()
                 cons = ForeignKeyConstraint(
                     name=constraint_name,
@@ -1386,11 +1387,12 @@ class ETLAlchemySource():
                     try:
                         cons.create(self.dst_engine)
                         creation_succesful = True
-                    except sqlalchemy.exc.OperationalError as e:  # MySQL Exception
+                    except sqlalchemy.exc.OperationalError as e:
+                        # MySQL Exception
                         self.logger.warning(
-                            str(e) +
-                            "\n ---> an FK on this table already references the ref_table..." +
-                            "appending '{0}' to FK's name and trying again...".format(
+                            str(e) + "\n ---> an FK on this table already " +
+                            "references the ref_table...appending '{0}' to" +
+                            " FK's name and trying again...".format(
                                 str(cnt)))
                         cons = ForeignKeyConstraint(
                             name=constraint_name +
@@ -1402,15 +1404,18 @@ class ETLAlchemySource():
                         cnt += 1
                         if cnt == max_fks:
                             self.logger.error(
-                                "FK creation was unsuccesful (surpassed max number of FKs on 1 table" +
+                                "FK creation was unsuccesful " +
+                                "(surpassed max number of FKs on 1 table" +
                                 "which all reference another table)")
                             self.skippedFKCount += 1
                             break
-                    except sqlalchemy.exc.ProgrammingError as e:  # PostgreSQL Exception
+                    except sqlalchemy.exc.ProgrammingError as e:
+                        # PostgreSQL Exception
                         self.logger.warning(
                             str(e) +
-                            "\n ---> an FK on this table already references the ref_table" +
-                            "...appending '{0}' to FK's name and trying again...".format(
+                            "\n ---> an FK on this table already references " +
+                            "the ref_table...appending '{0}' to FK's name " +
+                            "and trying again...".format(
                                 str(cnt)))
                         cons = ForeignKeyConstraint(
                             name=constraint_name +
@@ -1422,16 +1427,17 @@ class ETLAlchemySource():
                         cnt += 1
                         if cnt == max_fks:
                             self.logger.error(
-                               "FK creation was unsuccesful (surpassed max number of FKs on 1 table" +
-                               "which all reference another table)")
+                               "FK creation was unsuccesful (surpassed max " +
+                               "number of FKs on 1 table which all reference" +
+                               " another table)")
                             self.skippedFKCount += 1
                             break
 
                 self.fkCount += 1
             t_stop_constraint = datetime.now()
             constraint_dt = t_stop_constraint - t_start_constraint
-            constraint_dt_str = str(
-                constraint_dt.seconds / 60) + "m:" + str(constraint_dt.seconds % 60) + "s"
+            constraint_dt_str = str(constraint_dt.seconds / 60) + "m:" +\
+                str(constraint_dt.seconds % 60) + "s"
 
             self.times[pre_transformed_table_name][
                 'Constraint Time'] = constraint_dt_str
@@ -1487,7 +1493,8 @@ class ETLAlchemySource():
             str(self.fkCount),
             str(self.deletedTableCount),
             str(self.deletedColumnCount)))
-        #self.logger.warning("Referential Integrity Violations: \n" + "\n".join(self.riv_arr))
+        # self.logger.warning("Referential Integrity " +
+        # "Violations: \n" + "\n".join(self.riv_arr))
         self.logger.warning(
             "Unique Constraint Violations: " +
             "\n".join(
@@ -1545,4 +1552,5 @@ class ETLAlchemySource():
         ###########################################
         removedColumns = self.deletedColumns + self.nullColumns
         with open("deletedColumns.csv", "w") as fp:
-            fp.write("\n".join(map(lambda c: c.replace(".", ","), removedColumns)))
+            fp.write("\n".join(map(lambda c:
+                     c.replace(".", ","), removedColumns)))
