@@ -1,5 +1,5 @@
 # etlalchemy
-Extract, Transform and Load...Migrate any SQL Database to any other SQL DB with 4 Lines of Code.
+Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code.
 
 # Basic Usage
 ```python
@@ -116,7 +116,7 @@ target.migrate()
 ```
 
 # Known Limitations
-1. 'qlalchemy_migrate' does not support MSSQL FK migrations.
+1. 'sqlalchemy_migrate' does not support MSSQL FK migrations.
    *_(So, FK migrations will be skipped when Target is MSSQL)_
 2. Currently not compatible with Windows
    * Several "os.system()" calls with UNIX-specific utilities
@@ -134,6 +134,6 @@ target.migrate()
   * The script is not included, as the instances live on AWS, and were quite expensive to test on. 
 2. A regression test suite is needed, as is funding to setup an environment (8 AWS RDS instances). 
 
-**Please contact me if you are interested in contributing to the project, either financially through donations, or through Pull Requests.**
+**Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!
 
 
