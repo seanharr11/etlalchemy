@@ -35,7 +35,6 @@ multiple 'ETLAlchemyTargets' via calls to ETLAlchemySource.migrate().
 See examples (on github) for info...
 """
 
-
 class ETLAlchemySource():
 
     def __init__(self,
@@ -150,7 +149,9 @@ class ETLAlchemySource():
         base_classes = map(
             lambda c: c.__name__,
             column.type.__class__.__bases__)
-
+        self.logger.info("({0}) {1}".format(column.name,
+            column.type.__class__.__name__))
+        
         if "Enum" in base_classes:
             # Hack for error 'postgresql enum type requires a name'
             if self.dst_engine.dialect.name.lower() == "postgresql":
@@ -170,16 +171,38 @@ class ETLAlchemySource():
             # Strip collation here ...
             ##################################
             column_copy.type.collation = None
+            idx = self.current_ordered_table_columns.index(column.name)
             for row in raw_rows:
-                data = row[
-                    self.current_ordered_table_columns.index(
-                        column.name)]
+                data = row[idx]
                 if varchar_length and data and len(data) > varchar_length:
                     self.logger.critical(
                         "Length of column '{0}' exceeds VARCHAR({1})".format(
                             column.name, str(varchar_length)))
                 if data is not None:
                     null = False
+        elif "Unicode" in base_classes:
+            #########################################
+            # Get the VARCHAR size of the column...
+            ########################################
+            varchar_length = column.type.length
+            column_copy.type.length = varchar_length
+            ##################################
+            # Strip collation here ...
+            ##################################
+            column_copy.type.collation = None
+            idx = self.current_ordered_table_columns.index(column.name)
+            for row in raw_rows:
+                data = row[idx]
+                if varchar_length and data and len(data) > varchar_length:
+                    self.logger.critical(
+                        "Length of column '{0}' exceeds VARCHAR({1})".format(
+                            column.name, str(varchar_length)))
+                if data is not None:
+                    null = False
+                # Check for 'NULL'
+                if row[idx]:
+                    row[idx] = row[idx].decode('utf-8', 'ignore')
+
         elif "Date" in base_classes or "DateTime" in base_classes:
             ####################################
             # Determine whether this is a Date
@@ -285,6 +308,10 @@ class ETLAlchemySource():
                     column_copy.type = BigInteger()
                 else:
                     column_copy.type = Integer()
+        elif column.type.__class__.__name__ == "BIT":
+            self.logger.info("Found column of type 'BIT' -> " +
+                "coercing to Boolean'")
+            column_copy.type.__class__ = sqlalchemy.types.Boolean
         elif "TypeEngine" in base_classes:
             self.logger.warning(
                 "Type '{0}' has no base class!".format(
@@ -409,24 +436,28 @@ class ETLAlchemySource():
         return True
 
     def check_multiple_autoincrement_issue(self, auto_inc_count, pk_count, T):
-        if auto_inc_count > 0 and pk_count > 1:
-            # and engine == MySQL.innoDB...
-            self.logger.warning("""
-            ****************************************************************
-            **** Table '{0}' contains a composite primary key,
-            **** with an auto-increment attribute tagged on 1 of the columns.
-            *****************************************************************
-            ********* --We are dropping the auto-increment field-- **********
-            *****************************************************************
-            ** (why? MySQL -> InnoDB Engine does not support this.
-            ** Try MyISAM for support - understand that Oracle does not allow
-            ** auto-increment fields, but uses sequences to create unique
-            ** composite PKs")
-            *****************************************************************
-            """.format(T.name))
+        if pk_count > 1:
+            # Sometimes we can't detect the 'autoincrement' attr on columns
+            # (For instance on SQL Server...)
             for c in T.columns:
-                if c.autoincrement and c.primary_key:
+                if c.primary_key:
                     c.autoincrement = False
+            # and engine == MySQL.innoDB...
+            if auto_inc_count > 0:
+                # print the verbose warning
+                self.logger.warning("""
+                ****************************************************************
+                **** Table '{0}' contains a composite primary key,
+                **** with an auto-increment attribute tagged on 1 of the columns.
+                *****************************************************************
+                ********* --We are dropping the auto-increment field-- **********
+                *****************************************************************
+                ** (why? MySQL -> InnoDB Engine does not support this.
+                ** Try MyISAM for support - understand that Oracle does not allow
+                ** auto-increment fields, but uses sequences to create unique
+                ** composite PKs")
+                *****************************************************************
+                """.format(T.name))
 
     def transform_data(self, T_src, raw_rows):
         """"""""""""""""""""""""""""""
@@ -450,6 +481,7 @@ class ETLAlchemySource():
                 T.create()
                 return True
             except Exception as e:
+                raise e
                 self.logger.error(
                     "Failed to create table '{0}'\n\n{1}".format(
                         T.name, e))
@@ -526,17 +558,22 @@ class ETLAlchemySource():
             host = self.dst_engine.url.host
             self.logger.info(
                 "Sending data to target MySQL instance...(Fast [mysqlimport])")
-            os.system("mysqlimport -v -h{0} -u{1} -p{2} " +
-                      "--compress " +
-                      "--local " +
-                      "--fields-terminated-by=\",\" " +
-                      "--fields-enclosed-by=\"'\" " +
-                      "--fields-escaped-by='\\' " +
-                      "--columns={3} " +
-                      "--lines-terminated-by=\"\n\" " +
-                      "{4} {5}".format(host, username, password,
-                                       ",".join(columns), db_name,
-                                       data_file_path))
+            columns = map(lambda c: "\`{0}\`".format(c), columns)
+            cmd = ("mysqlimport -v -h{0} -u{1} -p{2} "
+                       "--compress "
+                       "--local "
+                       "--fields-terminated-by=\",\" "
+                       "--fields-enclosed-by=\"'\" "
+                       "--fields-escaped-by='\\' "
+                       # "--columns={3} "
+                       "--lines-terminated-by=\"\n\" "
+                       "{3} {4}"
+                      ).format(host, username, password,
+                                       #",".join(columns), db_name,
+                                       db_name,
+                                       data_file_path)
+            self.logger.info(cmd)
+            os.system(cmd)
             self.logger.info("Done.")
         elif self.dst_engine.dialect.name.lower() == "postgresql":
             # TODO: Take advantage of psql> COPY FROM <payload.sql> WITH
@@ -814,8 +851,8 @@ class ETLAlchemySource():
                     self.logger.warning(
                         "Table '" +
                         T.name +
-                        "' does not exist in the dst database, \
-                                we will create this later...")
+                        "' does not exist in the dst database " +
+                        "(we will create this later...)")
 
                 """"""""""""""""""""""""""
                 """ *** EXTRACTION *** """
@@ -850,7 +887,7 @@ class ETLAlchemySource():
 
                 assert(cnt == len(rows))
 
-                raw_rows = [row for row in rows]
+                raw_rows = [list(row) for row in rows]
                 self.logger.info("Done")
                 pks = []
 
@@ -867,6 +904,7 @@ class ETLAlchemySource():
                     if column.primary_key:
                         pks.append(column.name.lower())
                         pk_count += 1
+                    
                     if column.autoincrement:
                         auto_inc_count += 1
                     ##############################
@@ -1028,9 +1066,9 @@ class ETLAlchemySource():
             # Check to see if table_name
             # has been transformed...
             ####################################
-            table_transform = self.schema_transformer.tableTransformations\
+            table_transform = self.schema_transformer.table_transformations\
                 .get(table_name)
-            column_transformer = self.schema_transformer.columnTransformations\
+            column_transformer = self.schema_transformer.column_transformations\
                 .get(table_name)
             if table_transform and table_transform.newTable not in ["", None]:
                 # Update the table_name
@@ -1197,7 +1235,7 @@ class ETLAlchemySource():
             # Check to see if table_name
             # has been transformed...
             ####################################
-            table_transform = self.schema_transformer.tableTransformations.get(
+            table_transform = self.schema_transformer.table_transformations.get(
                 table_name)
             if table_transform and table_transform.newTable not in ["", None]:
                 # Update the table_name
@@ -1225,7 +1263,7 @@ class ETLAlchemySource():
 
             for fk in fks:
                 cons_column_transformer = \
-                        self.schema_transformer.columnTransformations.get(
+                        self.schema_transformer.column_transformations.get(
                          pre_transformed_table_name)
                 self.total_fks += 1
                 session = Session()
@@ -1265,10 +1303,10 @@ class ETLAlchemySource():
                 # has been transformed...
                 ####################################
                 table_transform = \
-                    self.schema_transformer.tableTransformations.get(
+                    self.schema_transformer.table_transformations.get(
                                   ref_table)
                 ref_column_transformer = \
-                    self.schema_transformer.columnTransformations.get(
+                    self.schema_transformer.column_transformations.get(
                                   ref_table)
                 if table_transform and table_transform.newTable not in [
                         "", None]:

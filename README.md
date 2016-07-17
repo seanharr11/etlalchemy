@@ -23,7 +23,7 @@ _Sources in first column, destinations in first row (DB Size: 4 million rows, 15
 | **MySQL** |4m:38s|4m:31s|61m:27s|63m:16s|2m:18s|
 | **Postgresql** |5m:9s|4m:24s|58m:9s|61m:29s|3m:11s|
 | **MSSQL** |5m:58s|5m:26s|57m:38s|60m:8s|5m:17s|
-| **Oracle** |40m:14s|39m:25s|82m:26s|![alt text][failure]|4m:0s|
+| **Oracle** |40m:14s|39m:25s|82m:26s| ??? |4m:0s|
 | **SQLite** |4m:51s|4m:51s|67m:29s|64m:22s|2m:11s|
 
 1. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
@@ -131,8 +131,8 @@ target.migrate()
 
 # On Testing 
 1. The 'Performance' matrix has been put together using a simple script which tests every combination of Source (5) and Target (5) DB migration (25 total combinations).
-  * The script is not included, as the instances live on AWS, and were quite expensive to test on. 
-2. A regression test suite is needed, as is funding to setup an environment (8 AWS RDS instances). 
+  * The script is not included (publicly), as it contains the connection strings of AWS RDS instances.
+2. A regression test suite is needed, as is funding to setup an environment for Oracle and MSSQL instances.. 
 
 **Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!
 
