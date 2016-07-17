@@ -4,6 +4,7 @@ import datetime
 
 def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
+    
     if isinstance(value, basestring):
         value = value.replace("'", "''")
         if dialect_name in ['sqlite', 'mssql', 'postgresql']:
@@ -13,6 +14,8 @@ def _generate_literal_value_for_csv(value, dialect):
             return "'%s'" % value
     elif value is None:
         return "NULL"
+    elif isinstance(value, bool):
+        return "%s" % int(value)
     elif isinstance(value, (float, int, long)):
         return "%s" % value
     elif isinstance(value, decimal.Decimal):
@@ -48,7 +51,7 @@ def _generate_literal_value_for_csv(value, dialect):
             raise NotImplementedError(
                     "No support for engine with dialect '%s'." +
                     "Implement it here!" % dialect.name)
-
+    
     else:
         raise NotImplementedError(
                     "Don't know how to literal-quote value %r" % value)
@@ -61,6 +64,8 @@ def _generate_literal_value(value, dialect):
         return "'%s'" % value
     elif value is None:
         return "NULL"
+    elif isinstance(value, bool):
+        return "%s" % int(value)
     elif isinstance(value, (float, int, long)):
         return "%s" % value
     elif isinstance(value, decimal.Decimal):
@@ -136,24 +141,18 @@ def dump_to_oracle_insert_statements(fp, engine, table, raw_rows, columns):
 # Supported by [MySQL, Postgresql, sqlite, SQL server (non-Azure) ]
 def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
     lines = []
-
+    separator = ","
+    # Determine the separator based on Target DB 
     if dialect.name.lower() in ["postgresql", "sqlite"]:
-        for r in raw_rows:
-            lines.append(
-                "|".join(map(lambda c: _generate_literal_value_for_csv(
-                    c, dialect), r)) + "\n")
+        separator = "|"
     elif dialect.name.lower() in ["mssql"]:
-        for r in raw_rows:
-            lines.append(
-                "|,".join(map(lambda c: _generate_literal_value_for_csv(
-                    c, dialect), r)) + "\n")
-    else:
-        for r in raw_rows:
-            lines.append(
-                ",".join(map(lambda c: _generate_literal_value_for_csv(
-                    c, dialect), r)) + "\n")
-    fp.write(''.join(lines))
-
+        separator = "|,"
+        
+    for r in raw_rows:
+        for col in r:
+            fp.write(_generate_literal_value_for_csv(col, dialect) + separator)
+        fp.write("\n")
+            
 
 def generate_literal_value(value, dialect, type_):
     """Render the value of a bind parameter as a quoted literal.
