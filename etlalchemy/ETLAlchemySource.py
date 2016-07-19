@@ -90,6 +90,9 @@ class ETLAlchemySource():
             table_transform_file=table_schema_transformation_file,
             global_renamed_col_suffixes=global_renamed_col_suffixes)
 
+        self.tgt_insp = None
+        self.src_insp = None
+        
         self.dst_engine = None
         self.constraints = {}
         self.indexes = {}
@@ -481,17 +484,16 @@ class ETLAlchemySource():
                 T.create()
                 return True
             except Exception as e:
-                raise e
                 self.logger.error(
                     "Failed to create table '{0}'\n\n{1}".format(
                         T.name, e))
+                raise
                 return False
         else:
             self.logger.warning(
                 "Table '{0}' already exists - not creating table, " +
                 "reflecting to get new changes instead..".format(T.name))
-            insp = inspect(self.dst_engine)
-            insp.reflecttable(T, None)
+            self.tgt_insp.reflecttable(T, None)
             return True
             # We need to Upsert the data...
 
@@ -781,8 +783,9 @@ class ETLAlchemySource():
                 self.engine = create_engine(self.database_url)
             except ImportError as e:
                 raise DBApiNotFound(self.database_url)
-        self.insp = reflection.Inspector.from_engine(self.engine)
-        self.table_names = self.insp.get_table_names()
+        # Create inspectors to gather schema info...
+        self.src_insp = reflection.Inspector.from_engine(self.engine)
+        self.table_names = self.src_insp.get_table_names()
         try:
             self.dst_engine = create_engine(destination_database_url)
         except ImportError as e:
@@ -790,10 +793,9 @@ class ETLAlchemySource():
         dst_meta = MetaData()
 
         Session = sessionmaker(bind=self.dst_engine)
-
-        src_session = sessionmaker(bind=self.engine)()
-
         dst_meta.bind = self.dst_engine
+
+        self.tgt_insp = reflection.Inspector.from_engine(self.dst_engine)
 
         TablesIterator = self.table_names  # defaults to ALL tables
 
@@ -821,7 +823,7 @@ class ETLAlchemySource():
             t_start_extract = datetime.now()
             T_src = Table(table_name, MetaData())
             try:
-                self.insp.reflecttable(T_src, None)
+                self.src_insp.reflecttable(T_src, None)
             except NoSuchTableError as table:
                 self.logger.error(
                     "Table '" +
@@ -830,11 +832,16 @@ class ETLAlchemySource():
                     destination +
                     "'.")
                 continue  # skip to next table...
+            except sqlalchemy.exc.DBAPIError as e:
+                self.logger.error(str(e))
+                # Let SQL Server sleep b/c of FreeTDS buffer clean up issues
+                time.sleep(10)
+                self.src_insp.reflecttable(T_src, None)
             ###############################
             # Gather indexes & FKs
             ###############################
-            self.indexes[table_name] = self.insp.get_indexes(table_name)
-            self.fks[table_name] = self.insp.get_foreign_keys(table_name)
+            self.indexes[table_name] = self.src_insp.get_indexes(table_name)
+            self.fks[table_name] = self.src_insp.get_foreign_keys(table_name)
             self.logger.info(
                 "Loaded indexes and FKs for table '{0}'".format(table_name))
             if migrate_schema:
@@ -843,9 +850,8 @@ class ETLAlchemySource():
                 # Check if DST table exists...
                 ###############################
                 T_dst_exists = True
-                insp = inspect(self.dst_engine)
                 try:
-                    insp.reflecttable(T, None)
+                    self.tgt_insp.reflecttable(T, None)
                 except sqlalchemy.exc.NoSuchTableError as e:
                     T_dst_exists = False
                     self.logger.warning(
@@ -870,7 +876,8 @@ class ETLAlchemySource():
                 self.logger.info(
                     "Building query to fetch all rows from {0}".format(
                         T_src.name))
-                cnt = src_session.query(T_src).count()
+                
+                cnt = self.engine.execute("SELECT Count(*) FROM {0}".format(T_src.name)).fetchone()[0]
                 resultProxy = self.engine.execute(T_src.select())
                 self.logger.info("Done. ({0} total rows)".format(str(cnt)))
                 j = 0
@@ -954,8 +961,7 @@ class ETLAlchemySource():
                 # bad and didn't clean up...)
 
                 dst_meta.reflect(self.dst_engine)
-                insp = inspect(self.dst_engine)
-                insp.reflecttable(T, None)
+                self.tgt_insp.reflecttable(T, None)
                 t_start_dump = datetime.now()
                 t_start_load = datetime.now()
                 if migrate_data:
@@ -1226,7 +1232,7 @@ class ETLAlchemySource():
         else:
             self.logger.warning("Can't disable foreign key checks...")
 
-        inspector = inspect(self.dst_engine)
+        inspector = self.tgt_insp
         for table_name in self.fks.keys():
             pre_transformed_table_name = table_name
             t_start_constraint = datetime.now()
