@@ -136,4 +136,5 @@ target.migrate()
 
 **Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!
 
+[*Checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project...
 
