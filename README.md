@@ -111,6 +111,7 @@ target.migrate()
 1. Default date formats for all Target DB's are assumed to be the 'out-of-the-box' defaults.
 2. Text fields to not contain the character "|", or the string "|,".
    * On some Target DBs, if you have text fields containing "|," (mssql) or "|" (sqlite, postgresql), then the 'fast' import may fail, or insert bizarre values into your DB. This is due to the 'delimiter' which separates column values in the file that is sent to the Target DB.
+3.) Not yet tested (thoroughly) on Linux.
 
 # On Testing 
 1. The 'Performance' matrix has been put together using a simple script which tests every combination of Source (5) and Target (5) DB migration (25 total combinations).
@@ -121,3 +122,4 @@ target.migrate()
 
 [*Checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project...
 
+*For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](https://thelaziestprogammer.com/cx_oracle) for help. 
