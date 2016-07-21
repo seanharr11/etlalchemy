@@ -118,8 +118,9 @@ target.migrate()
   * The script is not included (publicly), as it contains the connection strings of AWS RDS instances.
 2. A regression test suite is needed, as is funding to setup an environment for Oracle and MSSQL instances.. 
 
-**Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!
+# Other
+**Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!**
 
-[*Checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project...
+You can [*checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project here...
 
-*For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](https://thelaziestprogammer.com/cx_oracle) for help. 
+For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](https://thelaziestprogrammer.com/cx_oracle) for help. 
