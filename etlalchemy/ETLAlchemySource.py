@@ -70,7 +70,6 @@ class ETLAlchemySource():
 
         self.included_tables = included_tables
         self.excluded_tables = excluded_tables
-
         # Set this to 'False' if you are using either of the
         # following MSSQL Environments:
         #  1.) AWS SQL Server
