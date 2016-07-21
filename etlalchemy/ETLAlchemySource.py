@@ -27,7 +27,7 @@ from schema_transformer import SchemaTransformer
 from etlalchemy_exceptions import DBApiNotFound
 import os
 
-# Parse the connection_string to find relevant info for each db engine #
+# Parse the connn_string to find relevant info for each db engine #
 
 """
 An instance of 'ETLAlchemySource' represents 1 DB. This DB can be sent to
