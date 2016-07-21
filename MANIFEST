@@ -4,3 +4,6 @@ setup.py
 etlalchemy/ETLAlchemySource.py
 etlalchemy/ETLAlchemyTarget.py
 etlalchemy/__init__.py
+etlalchemy/etlalchemy_exceptions.py
+etlalchemy/literal_value_generator.py
+etlalchemy/schema_transformer.py

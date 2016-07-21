@@ -12,26 +12,6 @@ mysql_db_target.addSource(mssql_db_source)
 mysql_db_target.migrate()
 ````
 
-[success]: https://github.com/seanharr11/etlalchemy/blob/performance/img/green_check.png "Success"
-[failure]: https://github.com/seanharr11/etlalchemy/blob/performance/img/red_x.png "Failure"
-
-# Source -> Target: Performance/Timing Matrix
-_Sources in first column, destinations in first row (DB Size: 4 million rows, 150MB)_
-
-|     | MySQL | Postgresql | MSSQL | Oracle | SQLite |
-| :--- | :--- | :--- | :--- | :---- | :--- |
-| **MySQL** |4m:38s|4m:31s|61m:27s|63m:16s|2m:18s|
-| **Postgresql** |5m:9s|4m:24s|58m:9s|61m:29s|3m:11s|
-| **MSSQL** |5m:58s|5m:26s|57m:38s|60m:8s|5m:17s|
-| **Oracle** |40m:14s|39m:25s|82m:26s| ??? |4m:0s|
-| **SQLite** |4m:51s|4m:51s|67m:29s|64m:22s|2m:11s|
-
-1. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
-  * 'SQL Loader' can be used on Oracle, and the 'BULK INSERT' operation can be used on MSSQL, however the former is a PITA to install, and the latter is not supported in several MSSQL environments (see 'Known Limitations' below).
-  * 'BULK INSERT' *is supported* in etlalchemy (with limited testing), but "SQL LOADER" is not (yet).
-3. All tests were done using the same DB (see 'On Testing' below).
-3. Tests were NOT run from the target DB's server. *To ensure maximum performance, you should run this tool on the Target DB's Server!!!*.
-
 # Examples
 
 **Provide a list of tables to include/exclude in migration**
@@ -123,6 +103,9 @@ target.migrate()
 3. If Target DB is in the Azure Cloud (MSSQL), FreeTDS has some compatibility issues which are performance related. This may be noticed when migrating tables with 1,000,000+ rows into a Azure MSSQL Server.
 4. Though the MSSQL 'BULK INSERT' feature is supported in this tool, it is NOT supported on either Azure environments, or AWS MSSQL Server environments (no 'bulkadmin' role allowed). Feel free to test this out on a different MSSQL environment!
 5. Regression tests have not **(yet)** been created due to the unique **(and expensive)** way one must test all of the different database types.
+6. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
+  * 'SQL Loader' can be used on Oracle, and the 'BULK INSERT' operation can be used on MSSQL, however the former is a PITA to install, and the latter is not supported in several MSSQL environments (see 'Known Limitations' below).
+  * 'BULK INSERT' *is supported* in etlalchemy (with limited testing), but "SQL LOADER" is not (yet).
 
 # Assumptions Made
 1. Default date formats for all Target DB's are assumed to be the 'out-of-the-box' defaults.

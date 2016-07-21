@@ -51,12 +51,13 @@ class ETLAlchemySource():
 
         self.logger = logging.getLogger("ETLAlchemySource")
         self.logger.propagate = False
+        
+        for h in list(self.logger.handlers):
+            # Clean up any old loggers...(useful during testing w/ multiple
+            # log_files)
+            self.logger.removeHandler(h)
         handler = logging.StreamHandler()
         if log_file is not None:
-            for h in list(self.logger.handlers):
-                # Clean up any old loggers...(useful during testing w/ multiple
-                # log_files)
-                self.logger.removeHandler(h)
             handler = logging.FileHandler(log_file)
         formatter = logging.Formatter('%(name)s (%(levelname)s) - %(message)s')
         handler.setFormatter(formatter)
@@ -102,6 +103,7 @@ class ETLAlchemySource():
         self.orm = None
         self.database_url = conn_string
 
+        self.total_rows = 0
         self.column_count = 0
         self.table_count = 0
         self.empty_table_count = 0
@@ -488,7 +490,6 @@ class ETLAlchemySource():
                     "Failed to create table '{0}'\n\n{1}".format(
                         T.name, e))
                 raise
-                return False
         else:
             self.logger.warning(
                 "Table '{0}' already exists - not creating table, " +
@@ -617,12 +618,10 @@ class ETLAlchemySource():
             db_name = self.dst_engine.url.database
             self.logger.info(
                 "Sending data to target sqlite instance...(Fast [.import])")
-            os.system(
-                "echo \".separator '|'\n" +
-                ".nullvalue NULL\n" +
-                ".import {0} {1} \"" +
-                " | sqlite3 {2}".format(
-                    data_file_path, table, db_name))
+            sqlite_cmd = ".separator \'|\'\\n.nullvalue NULL\\n.import {0} {1}".format(data_file_path, table)
+            self.logger.info(sqlite_cmd)
+            os.system("echo \"{0}\" | sqlite3 {1}"
+                    .format(sqlite_cmd, db_name))
             # ** Note values will be inserted as 'NULL' if they are NULL.
             """
            with open("{0}.sql".format(table), "r") as fp:
@@ -770,6 +769,7 @@ class ETLAlchemySource():
         """"""""""""""""""""""""
         """ ** REFLECTION ** """
         """"""""""""""""""""""""
+       
         buffer_size = 10000
 
         if self.database_url.split(":")[0] == "oracle+cx_oracle":
@@ -808,9 +808,16 @@ class ETLAlchemySource():
         elif self.excluded_tables:
             TablesIterator = list(set(TablesIterator) -
                                   set(self.excluded_tables))
-
+       
+        t_idx = -1
+        t_total = len(TablesIterator)
+        self.logger.info("""
+        *************************
+        *** Total Tables: {0} ***
+        *************************
+        """.format(str(t_total)))
         for table_name in TablesIterator:
-
+            t_idx += 1
             #######################
             # Time each table...
             #######################
@@ -961,27 +968,35 @@ class ETLAlchemySource():
                 # bad and didn't clean up...)
 
                 dst_meta.reflect(self.dst_engine)
-                self.tgt_insp.reflecttable(T, None)
+
+                #self.tgt_insp.reflecttable(T, None)
                 t_start_dump = datetime.now()
                 t_start_load = datetime.now()
+                
+                row_buffer_size = 100000
+                if self.dst_engine.dialect.name.lower() == 'mssql' and \
+                 not self.enable_mssql_bulk_insert:
+                    # MSSQL limits the amount of INSERTS per query
+                    row_buffer_size = 1000
+
                 if migrate_data:
                     self.logger.info("Transforming & Dumping " +
                                      str(len(raw_rows)) +
                                      " total rows from table '" +
                                      str(T.name) +
                                      "' into '{0}'.".format(data_file_path))
-                    # Create buffers of "1000" rows
-                    # TODO: Parameterize "1000" as 'buffer_size' (should be
+                    # Create buffers of "100000" rows
+                    # TODO: Parameterize "100000" as 'buffer_size' (should be
                     # configurable)
-                    insertionCount = (len(raw_rows) / 1000) + 1
+                    insertionCount = (len(raw_rows) / row_buffer_size) + 1
                     raw_row_len = len(raw_rows)
-
+                    self.total_rows += raw_row_len
                     if len(raw_rows) > 0:
                         for i in range(0, insertionCount):
                             startRow = 0  # i * 1000
-                            endRow = 1000  # (i+1) * 1000
-                            virtualStartRow = i * 1000
-                            virtualEndRow = (i + 1) * 1000
+                            endRow = row_buffer_size  # (i+1) * 1000
+                            virtualStartRow = i * row_buffer_size
+                            virtualEndRow = (i + 1) * row_buffer_size
                             if virtualEndRow > raw_row_len:
                                 virtualEndRow = raw_row_len
                                 endRow = raw_row_len
@@ -996,15 +1011,14 @@ class ETLAlchemySource():
                             self.transform_data(
                                 T_src, raw_rows[startRow:endRow])
                             self.logger.info(
-                                " ({0}) -- Dumping rows: ".format(
-                                    T.name) +
+                                " ({0}) -- Dumping rows: "
+                                .format(T.name) +
                                 str(virtualStartRow) +
                                 " -> " +
                                 str(virtualEndRow) +
-                                " to '{1}.sql'...({0} Total)".format(
-                                    str(raw_row_len),
-                                    T.name))
-
+                                " to '{1}.sql'...({0} Total)"
+                                .format(str(raw_row_len), T.name) +
+                                "[Table {0}/{1}]".format(str(t_idx), str(t_total)))
                             self.dump_data(
                                 T_dst_exists, T, raw_rows[startRow:endRow],
                                 pks, Session)
@@ -1082,19 +1096,28 @@ class ETLAlchemySource():
             this_idx_count = 0
             self.logger.info("Creating indexes for '" + table_name + "'...")
             for i in indexes:
-
+                self.logger.info(str(i))
                 self.total_indexes += 1
                 session = Session()
                 col = i['column_names']
+                continueFlag = False
+                if len(col) == 0:
+                    self.logger.warning("Index has no columns! This may be an " +
+                        "issue with the metadata reflection function..." +
+                        "\n** This issue is known on MSSQL Sources")
+                    continueFlag = True
                 unique = i['unique']
                 # Name the index something compatible across all databases
                 # (i.e. can't create Idx w/ same name as column in Postgresql)
                 name = "IDX_" + table_name + "__" + \
                     "_".join(col) + "__" + str(this_idx_count)
+                # Max length of identifier is 63 characters in 
+                # postgresql & mysql
+                if len(name) > 63:
+                    name = name[:60] + "_" + str(this_idx_count)
                 # number prefix guarentees uniqueness (i.e. if multiple idx's
                 # on one column)
                 cols = ()
-                continueFlag = False
                 self.logger.info(
                     "Checking validity of data indexed by: " +
                     "'{0}' (column = '{1}' - table = '{2}')"
@@ -1179,7 +1202,7 @@ class ETLAlchemySource():
                     try:
                         I.create(self.dst_engine)
                     except sqlalchemy.exc.OperationalError as e:
-                        self.logger.warning(str(e) + " -- it is likely " +
+                        self.logger.warning(str(e) + "\n -- it is likely " +
                                             "that the Index already exists...")
                         self.skipped_index_count += 1
                         continue
@@ -1325,6 +1348,9 @@ class ETLAlchemySource():
                 ############################
                 constraint_name = "FK__{0}__{1}".format(
                     table_name.upper(), T_ref.name.upper())
+                if len(constraint_name) > 63:
+                    constraint_name = constraint_name[:63]
+                
                 try:
                     inspector.reflecttable(T_ref, None)
                 except sqlalchemy.exc.NoSuchTableError as e:
@@ -1521,7 +1547,9 @@ class ETLAlchemySource():
        ========================\n
        Unique Constraint Violations:     {10}
        ========================\n
-       Total Time:                       {7}\n\n""".format(
+       Total Time:                       {7}
+       Total Rows:                       {17}
+       Rows per Minute:                  {18}\n\n""".format(
             str(self.table_count),
             str(self.empty_table_count),
             str(self.table_count - self.empty_table_count),
@@ -1538,7 +1566,9 @@ class ETLAlchemySource():
             str(self.skipped_fk_count),
             str(self.fk_count),
             str(self.deleted_table_count),
-            str(self.deleted_column_count)))
+            str(self.deleted_column_count),
+            str(self.total_rows),
+            str(self.total_rows / (dt.seconds / 60))))
         # self.logger.warning("Referential Integrity " +
         # "Violations: \n" + "\n".join(self.riv_arr))
         self.logger.warning(
@@ -1576,7 +1606,8 @@ class ETLAlchemySource():
         for (table_name, timings) in self.times.iteritems():
             self.logger.info(table_name)
             for key in ordered_timings:
-                self.logger.info("-- " + str(key) + ": " + str(timings[key]))
+                self.logger.info("-- " + str(key) + ": " +
+                    str(timings.get(key) or 'N/A'))
             self.logger.info("_________________________")
 
         self.schema_transformer.failed_transformations = list(

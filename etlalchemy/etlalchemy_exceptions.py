@@ -23,7 +23,7 @@ class DBApiNotFound(Exception):
   **  --> machine! The driver is needed in order to install
   **  --> the Python DB API ('{1}').
   **  --> (see the following link for instructions):
-  ** https://seanharr11.github.io/installing-database-drivers
+  ** https://thelaziestprogrammer.com/{1}
   **********************************************************
         """.format(conn_string, db_api)
 

@@ -1,6 +1,11 @@
+import shutil
 import decimal
 import datetime
-
+# Find the best implementation available on this platform
+try:
+    from cStringIO import StringIO
+except:
+    from StringIO import StringIO
 
 def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
@@ -148,10 +153,17 @@ def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
     elif dialect.name.lower() in ["mssql"]:
         separator = "|,"
         
-    for r in raw_rows:
-        for col in r:
-            fp.write(_generate_literal_value_for_csv(col, dialect) + separator)
-        fp.write("\n")
+    num_cols = len(raw_rows[0])
+    num_rows = len(raw_rows)
+    out = StringIO()
+    for i in range(0, num_rows):
+        for j in range(0, num_cols - 1):
+            out.write(_generate_literal_value_for_csv(raw_rows[i][j], dialect))
+            out.write(separator)
+        # Print the last column w/o the separator
+        out.write(_generate_literal_value_for_csv(raw_rows[i][num_cols - 1], dialect) + "\n")
+    out.seek(0)
+    fp.write(out.getvalue())
             
 
 def generate_literal_value(value, dialect, type_):
