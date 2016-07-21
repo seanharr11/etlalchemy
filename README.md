@@ -124,3 +124,5 @@ target.migrate()
 You can [*checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project here...
 
 For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](https://thelaziestprogrammer.com/cx_oracle) for help. 
+
+Run this tool from the **same server that hosts your Target database** to get **maximum performance** out of it.
