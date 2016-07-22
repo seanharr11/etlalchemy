@@ -108,16 +108,17 @@ target.migrate()
   * 'BULK INSERT' *is supported* in etlalchemy (with limited testing), but "SQL LOADER" is not (yet).
 7. When sending data to PostgreSQL, if the data contains VARCHAR() or TEXT() columns with carriage returns ('^M' or '\r'), these will be stripped.
   * This is due to the lack of the "ENCLOSED BY" option of psycopg.copy_from() - these chars are interpreted as literals, and in turn tell the COPY FROM operation that "the row ends here"
+
 # Assumptions Made
 1. Default date formats for all Target DB's are assumed to be the 'out-of-the-box' defaults.
 2. Text fields to not contain the character "|", or the string "|,".
-   * On some Target DBs, if you have text fields containing "|," (mssql) or "|" (sqlite, postgresql), then the 'fast' import may fail, or insert bizarre values into your DB. This is due to the 'delimiter' which separates column values in the file that is sent to the Target DB.
-3.) Not yet tested (thoroughly) on Linux.
+   * On some Target DBs, if you have text fields containing "|," (mssql) or "|" (sqlite), then the 'fast' import may fail, or insert bizarre values into your DB. This is due to the 'delimiter' which separates column values in the file that is sent to the Target DB.
 
 # On Testing 
 1. The 'Performance' matrix has been put together using a simple script which tests every combination of Source (5) and Target (5) DB migration (25 total combinations).
   * The script is not included (publicly), as it contains the connection strings of AWS RDS instances.
 2. A regression test suite is needed, as is funding to setup an environment for Oracle and MSSQL instances.. 
+3. There are definitely some untested column types here amongst all 5 RDBMS's. Please create *pull requests* or open *issues* that describe the problem **in detail** as these arise!
 
 # Other
 **Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!**
