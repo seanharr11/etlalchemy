@@ -1,5 +1,5 @@
 # etlalchemy
-Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Read more here...](http://thelaziestprogrammer.com/etlalchemy)*
+Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Read more here...](http://thelaziestprogrammer.com/sharrington/databases/migrating-between-databases-with-etlalchemy)*
 
 # Basic Usage
 ```python
@@ -122,8 +122,8 @@ target.migrate()
 # Other
 **Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!**
 
-You can [*checkout the inspiration and history*](http://thelaziestprogrammer.com/etlalchemy) behind this project here...
+You can [*checkout the inspiration and history*](http://thelaziestprogrammer.com/migrating-between-databases-with-etlalchemy) behind this project here...
 
-For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](https://thelaziestprogrammer.com/cx_oracle) for help. 
+For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](http://thelaziestprogrammer.com/sharrington/databases/oracle/install-cx_oracle-mac) for help. 
 
 Run this tool from the **same server that hosts your Target database** to get **maximum performance** out of it.
