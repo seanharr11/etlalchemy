@@ -19,7 +19,7 @@ from sqlalchemy import create_engine, MetaData, func, and_
 from sqlalchemy.engine import reflection
 from sqlalchemy.inspection import inspect
 from sqlalchemy.exc import NoSuchTableError
-from sqlalchemy.types import Numeric, BigInteger, Integer, DateTime, Date
+from sqlalchemy.types import Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP
 import inspect as ins
 import re
 import csv
@@ -227,7 +227,10 @@ class ETLAlchemySource():
                     null = False
             self.logger.warning(str(type_count))
             if type_count.get("datetime"):
-                column_copy.type = DateTime()
+                if self.dst_engine.dialect.name.lower() == "postgresql":
+                    column_copy.type = TIMESTAMP()
+                else:
+                    column_copy.type = DateTime()
             else:
                 column_copy.type = Date()
 
