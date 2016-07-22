@@ -106,7 +106,8 @@ target.migrate()
 6. Migrations *to* MSSQL and Oracle are extremely slow due to the lack of 'fast' import capabilities. 
   * 'SQL Loader' can be used on Oracle, and the 'BULK INSERT' operation can be used on MSSQL, however the former is a PITA to install, and the latter is not supported in several MSSQL environments (see 'Known Limitations' below).
   * 'BULK INSERT' *is supported* in etlalchemy (with limited testing), but "SQL LOADER" is not (yet).
-
+7. When sending data to PostgreSQL, if the data contains VARCHAR() or TEXT() columns with carriage returns ('^M' or '\r'), these will be stripped.
+  * This is due to the lack of the "ENCLOSED BY" option of psycopg.copy_from() - these chars are interpreted as literals, and in turn tell the COPY FROM operation that "the row ends here"
 # Assumptions Made
 1. Default date formats for all Target DB's are assumed to be the 'out-of-the-box' defaults.
 2. Text fields to not contain the character "|", or the string "|,".
