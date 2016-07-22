@@ -11,11 +11,11 @@ def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
     
     if isinstance(value, basestring):
-        value = value.replace("'", "''")
         if dialect_name in ['sqlite', 'mssql', 'postgresql']:
             # No support for 'quote' enclosed strings
             return "%s" % value
         else:
+            value = value.replace("''", "'")
             return "'%s'" % value
     elif value is None:
         return "NULL"
@@ -27,31 +27,47 @@ def _generate_literal_value_for_csv(value, dialect):
         return str(value)
     elif isinstance(value, datetime.datetime):
         if dialect_name == "mysql":
-            return "%s" % value.strftime("%Y-%m-%d %H:%M:%S")
+            return '%02d-%02d-%02d %02d:%02d:%02d' %\
+                    (value.year,value.month,value.day,value.hour,value.minute,value.second)
         elif dialect_name == "oracle":
             return "TO_DATE('%s','YYYY-MM-DD HH24:MI:SS')" %\
-                value.strftime("%Y-%m-%d %H:%M:%S")
+                    ('%02d-%02d-%02d %02d:%02d:%02d' %\
+                        (value.year,value.month,value.day,value.hour,value.minute,value.second))
+                #value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect_name == "postgresql":
-            return "\"%s\"" % value.strftime("%Y-%m-%d %H:%M:%S")
+            return '%02d-%02d-%02d %02d:%02d:%02d' %\
+                    (value.year,value.month,value.day,value.hour,value.minute,value.second)
+            #return '%Y-%m-%d %H:%M:%S'.format(value)
+            #return "\"%s\"" % value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect_name == "mssql":
-            return "'%s'" % value.strftime("%m/%d/%Y %H:%M:%S.%p")
+            #return "'%s'" % value.strftime("%m/%d/%Y %H:%M:%S.%p")
+            return '%02d%02d%02d %02d:%02d:%02d.0' %\
+                    (value.year,value.month,value.day,value.hour,value.minute,value.second)
+
         elif dialect_name == "sqlite":
-            return "%s" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+            #return "%s" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+            return '%02d-%02d-%02d %02d:%02d:%02d.0' %\
+                    (value.year,value.month,value.day,value.hour,value.minute,value.second)
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'. " +
                     "Implement it here!" % dialect.name)
     elif isinstance(value, datetime.date):
         if dialect_name == "mysql":
-            return "%s" % value.strftime("%Y-%m-%d")
+            return '%02d-%02d-%02d' %\
+                    (value.year,value.month,value.day)
         elif dialect_name == "oracle":
-            return "TO_DATE('%s', 'YYYY-MM-DD')" % value.strftime("%Y-%m-%d")
+            return "TO_DATE('%s', 'YYYY-MM-DD')" %\
+                    ('%02d-%02d-%02d' % (value.year,value.month,value.day))
         elif dialect_name == "postgresql":
-            return "\"%s\"" % value.strftime("%Y-%m-%d")
+            return '%02d-%02d-%02d' %\
+                    (value.year,value.month,value.day)
         elif dialect_name == "mssql":
-            return "'%s'" % value.strftime("%m/%d/%Y")
+            return "'%02d/%02d/%02d'" %\
+                    (value.year,value.month,value.day)
         elif dialect_name == "sqlite":
-            return "%s" % value.strftime("%Y-%m-%d")
+            return "%02d-%02d-%02d" %\
+                    (value.year,value.month,value.day)
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'." +
@@ -76,37 +92,40 @@ def _generate_literal_value(value, dialect):
     elif isinstance(value, decimal.Decimal):
         return str(value)
     elif isinstance(value, datetime.datetime):
-        if dialect_name == "mysql":
-            return "STR_TO_DATE('%s','%%Y-%%m-%%d %%H:%%M:%%S')" %\
-                value.strftime("%Y-%m-%d %H:%M:%S")
-        elif dialect_name == "oracle":
+        #if dialect_name == "mysql":
+        #    return "STR_TO_DATE('%s','%%Y-%%m-%%d %%H:%%M:%%S')" %\
+        #        value.strftime("%Y-%m-%d %H:%M:%S")
+        if dialect_name == "oracle":
             return "TO_DATE('%s','YYYY-MM-DD HH24:MI:SS')" %\
-                value.strftime("%Y-%m-%d %H:%M:%S")
-        elif dialect_name == "postgresql":
-            return "to_date('%s', 'YYYY-MM-DD HH24:MI:SS')" %\
-                value.strftime("%Y-%m-%d %H:%M:%S")
+                    ('%02d-%02d-%02d %02d:%02d:%02d' %\
+                        (value.year,value.month,value.day,value.hour,value.minute,value.second))
+        #elif dialect_name == "postgresql":
+        #    return "to_date('%s', 'YYYY-MM-DD HH24:MI:SS')" %\
+        #        value.strftime("%Y-%m-%d %H:%M:%S")
         elif dialect_name == "mssql":
-            return "'%s'" % value.strftime("%Y%m%d %H:%M:%S %p")
-        elif dialect_name == "sqlite":
-            return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
+            #return "'%s'" % value.strftime("%Y%m%d %H:%M:%S %p")
+            return "'%02d%02d%02d %02d:%02d:%02d 0'" %\
+                    (value.year,value.month,value.day,value.hour,value.minute,value.second)
+        #elif dialect_name == "sqlite":
+        #    return "'%s'" % value.strftime("%Y-%m-%d %H:%M:%S.%f")
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'. " +
                     "Implement it here!" % dialect.name)
     elif isinstance(value, datetime.date):
-        if dialect_name == "mysql":
-            return "STR_TO_DATE('%s','%%Y-%%m-%%d')" %\
-                value.strftime("%Y-%m-%d")
-        elif dialect_name == "oracle":
+        #if dialect_name == "mysql":
+        #    return "STR_TO_DATE('%s','%%Y-%%m-%%d')" %\
+        #        value.strftime("%Y-%m-%d")
+        if dialect_name == "oracle":
             return "TO_DATE('%s', 'YYYY-MM-DD')" %\
-                value.strftime("%Y-%m-%d")
-        elif dialect_name == "postgresql":
-            return "to_date('%s', 'YYYY-MM-DD')" %\
-                value.strftime("%Y-%m-%d")
+                ('%02d-%02d-%02d' % (value.year,value.month,value.day))
+        #elif dialect_name == "postgresql":
+        #    return "to_date('%s', 'YYYY-MM-DD')" %\
+        #        value.strftime("%Y-%m-%d")
         elif dialect_name == "mssql":
-            return "'%s'" % value.strftime("%Y%m%d")
-        elif dialect_name == "sqlite":
-            return "'%s'" % value.strftime("%Y-%m-%d")
+            return "'%02d%02d%02d'" % (value.year,value.month,value.day)
+        #elif dialect_name == "sqlite":
+        #    return "'%s'" % value.strftime("%Y-%m-%d")
         else:
             raise NotImplementedError(
                     "No support for engine with dialect '%s'. " +

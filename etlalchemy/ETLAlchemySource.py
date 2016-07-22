@@ -19,7 +19,7 @@ from sqlalchemy import create_engine, MetaData, func, and_
 from sqlalchemy.engine import reflection
 from sqlalchemy.inspection import inspect
 from sqlalchemy.exc import NoSuchTableError
-from sqlalchemy.types import Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP
+from sqlalchemy.types import Text, Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP
 import inspect as ins
 import re
 import csv
@@ -47,8 +47,13 @@ class ETLAlchemySource():
                  excluded_tables=None,
                  skip_table_if_empty=False,
                  skip_column_if_empty=False,
+                 compress_varchar=False,
                  log_file=None):
-
+        # TODO: Store unique columns in here, and ADD the unique constraints
+        # after data has been migrated, rather than before
+        self.unique_columns = []
+        self.compress_varchar = compress_varchar
+        
         self.logger = logging.getLogger("ETLAlchemySource")
         self.logger.propagate = False
         
@@ -142,7 +147,8 @@ class ETLAlchemySource():
                              nullable=column.nullable,
                              unique=column.unique,
                              primary_key=column.primary_key)
-        # index=column.index)
+        if column.unique:
+            self.unique_columns.append(column.name)
         """"""""""""""""""""""""""""""""
         """ *** STANDARDIZATION *** """
         """"""""""""""""""""""""""""""""
@@ -151,12 +157,12 @@ class ETLAlchemySource():
         # database-vendor specific column types
         ##############################
         base_classes = map(
-            lambda c: c.__name__,
+            lambda c: c.__name__.upper(),
             column.type.__class__.__bases__)
         self.logger.info("({0}) {1}".format(column.name,
             column.type.__class__.__name__))
         
-        if "Enum" in base_classes:
+        if "ENUM" in base_classes:
             # Hack for error 'postgresql enum type requires a name'
             if self.dst_engine.dialect.name.lower() == "postgresql":
                 column_copy.type = column.type
@@ -165,26 +171,46 @@ class ETLAlchemySource():
                 column_copy.type.name = str(column).replace(".", "_")
             else:
                 column_copy.type.__class__ = column.type.__class__.__bases__[0]
-        elif "String" in base_classes:
+        elif "STRING" in base_classes\
+                or "VARCHAR" in base_classes\
+                or "TEXT" in base_classes:
             #########################################
             # Get the VARCHAR size of the column...
             ########################################
             varchar_length = column.type.length
-            column_copy.type.length = varchar_length
             ##################################
             # Strip collation here ...
             ##################################
             column_copy.type.collation = None
             idx = self.current_ordered_table_columns.index(column.name)
+            if self.dst_engine.dialect.name.lower() == 'postgresql':
+                # psycopg2's 'copy_from' method does not allow you to enclose columns in strings,
+                # so '\r' and '\n' are interpreted as literals, and break the import
+                self.logger.info(" ---> Replace carriage-returns '^M'  with '\\r'")
+            max_data_length = 0
             for row in raw_rows:
                 data = row[idx]
-                if varchar_length and data and len(data) > varchar_length:
-                    self.logger.critical(
-                        "Length of column '{0}' exceeds VARCHAR({1})".format(
-                            column.name, str(varchar_length)))
                 if data is not None:
                     null = False
-        elif "Unicode" in base_classes:
+                    # Update varchar(size)
+                    if len(data) > max_data_length:
+                        max_data_length = len(data)
+
+                    # Replace carriage-returns
+                    if self.dst_engine.dialect.name.lower() == 'postgresql':
+                        # note that '|' is the delimter for postgrsql import file
+                        row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-")
+            if max_data_length > 256:
+                self.logger.info("Converting VARCHAR -> TEXT")
+                column_copy.type = Text()
+            elif max_data_length < varchar_length and max_data_length != 0:
+                if self.compress_varchar == True:
+                    self.logger.warning("Reduced column size from VARCHAR({0}) to VARCHAR({1})"
+                        .format(str(varchar_length), str(max_data_length)))
+                    column_copy.type.length = max_data_length
+            else:
+                column_copy.type.length = varchar_length
+        elif "UNICODE" in base_classes:
             #########################################
             # Get the VARCHAR size of the column...
             ########################################
@@ -207,7 +233,7 @@ class ETLAlchemySource():
                 if row[idx]:
                     row[idx] = row[idx].decode('utf-8', 'ignore')
 
-        elif "Date" in base_classes or "DateTime" in base_classes:
+        elif "DATE" in base_classes or "DATETIME" in base_classes:
             ####################################
             # Determine whether this is a Date
             # or Datetime field
@@ -227,14 +253,17 @@ class ETLAlchemySource():
                     null = False
             self.logger.warning(str(type_count))
             if type_count.get("datetime"):
-                if self.dst_engine.dialect.name.lower() == "postgresql":
+                if self.dst_engine.dialect.name.lower() in ["postgresql"]:
+                    self.logger.info("Postgresql has no DATETIME - converting to TIMESTAMP")
                     column_copy.type = TIMESTAMP()
                 else:
                     column_copy.type = DateTime()
             else:
                 column_copy.type = Date()
 
-        elif "Numeric" in base_classes or "Float" in base_classes:
+        elif "NUMERIC" in base_classes\
+                or "FLOAT" in base_classes\
+                or "DECIMAL" in base_classes:
             ####################################
             # Check all cleaned_rows to determine
             # if column is decimal or integer
@@ -319,11 +348,11 @@ class ETLAlchemySource():
             self.logger.info("Found column of type 'BIT' -> " +
                 "coercing to Boolean'")
             column_copy.type.__class__ = sqlalchemy.types.Boolean
-        elif "TypeEngine" in base_classes:
+        elif "TYPEENGINE" in base_classes:
             self.logger.warning(
                 "Type '{0}' has no base class!".format(
                     column.type.__class__.__name__))
-        elif "_Binary" in base_classes:
+        elif "_BINARY" in base_classes:
             self.logger.warning("Base types include '_Binary'")
         else:
             #####################################################
@@ -1570,7 +1599,7 @@ class ETLAlchemySource():
             str(self.deleted_table_count),
             str(self.deleted_column_count),
             str(self.total_rows),
-            str(self.total_rows / (dt.seconds / 60))))
+            str(self.total_rows / ((dt.seconds / 60) or 1))))
         # self.logger.warning("Referential Integrity " +
         # "Violations: \n" + "\n".join(self.riv_arr))
         self.logger.warning(
