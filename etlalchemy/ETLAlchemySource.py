@@ -19,7 +19,8 @@ from sqlalchemy import create_engine, MetaData, func, and_
 from sqlalchemy.engine import reflection
 from sqlalchemy.inspection import inspect
 from sqlalchemy.exc import NoSuchTableError
-from sqlalchemy.types import Text, Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP
+from sqlalchemy.types import Text, Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP, String, BINARY, LargeBinary
+from sqlalchemy.dialects.postgresql import BYTEA
 import inspect as ins
 import re
 import csv
@@ -152,6 +153,7 @@ class ETLAlchemySource():
         """"""""""""""""""""""""""""""""
         """ *** STANDARDIZATION *** """
         """"""""""""""""""""""""""""""""
+        idx = self.current_ordered_table_columns.index(column.name)
         ##############################
         # Duck-typing to remove
         # database-vendor specific column types
@@ -161,7 +163,7 @@ class ETLAlchemySource():
             column.type.__class__.__bases__)
         self.logger.info("({0}) {1}".format(column.name,
             column.type.__class__.__name__))
-        
+        self.logger.info("Bases: {0}".format(str(base_classes))) 
         if "ENUM" in base_classes:
             # Hack for error 'postgresql enum type requires a name'
             if self.dst_engine.dialect.name.lower() == "postgresql":
@@ -182,7 +184,6 @@ class ETLAlchemySource():
             # Strip collation here ...
             ##################################
             column_copy.type.collation = None
-            idx = self.current_ordered_table_columns.index(column.name)
             if self.dst_engine.dialect.name.lower() == 'postgresql':
                 # psycopg2's 'copy_from' method does not allow you to enclose columns in strings,
                 # so '\r' and '\n' are interpreted as literals, and break the import
@@ -199,7 +200,8 @@ class ETLAlchemySource():
                     # Replace carriage-returns
                     if self.dst_engine.dialect.name.lower() == 'postgresql':
                         # note that '|' is the delimter for postgrsql import file
-                        row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-")
+                        row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-").\
+                                decode('utf-8','ignore').encode("utf-8")
             if max_data_length > 256:
                 self.logger.info("Converting VARCHAR -> TEXT")
                 column_copy.type = Text()
@@ -215,12 +217,12 @@ class ETLAlchemySource():
             # Get the VARCHAR size of the column...
             ########################################
             varchar_length = column.type.length
+            column_copy.type = String()
             column_copy.type.length = varchar_length
             ##################################
             # Strip collation here ...
             ##################################
             column_copy.type.collation = None
-            idx = self.current_ordered_table_columns.index(column.name)
             for row in raw_rows:
                 data = row[idx]
                 if varchar_length and data and len(data) > varchar_length:
@@ -331,19 +333,26 @@ class ETLAlchemySource():
                         "Column '" +
                         column.name +
                         "' is a primary key, but is of type 'Decimal'")
-                if mantissa_max_value == 0:
-                    self.logger.warning(
-                        "Column '" +
-                        column.name +
-                        "' is of type 'Decimal', but contains no mantissas " +
-                        "> 0. (i.e. 3.00, 2.00, etc..)\n " +
-                        "--Consider changing column type to 'Integer'")
-            else:
-                # 2^32 - 1
+            elif mantissa_max_value == 0:
+                self.logger.warning(
+                    "Column '" +
+                    column.name +
+                    "' is of type 'Decimal', but contains no mantissas " +
+                    "> 0. (i.e. 3.00, 2.00, etc..)\n ")
                 if maxDigit > 4294967295:
+                    self.logger.warning("Coercing to 'BigInteger'")
                     column_copy.type = BigInteger()
+                    # Do conversion...
+                    for r in raw_rows:
+                        if r[idx] is not None:
+                            r[idx] = long(r[idx])
                 else:
                     column_copy.type = Integer()
+                    self.logger.warning("Coercing to 'Integer'")
+                    for r in raw_rows:
+                        if r[idx] is not None:
+                            r[idx] = int(r[idx])
+                      
         elif column.type.__class__.__name__ == "BIT":
             self.logger.info("Found column of type 'BIT' -> " +
                 "coercing to Boolean'")
@@ -352,8 +361,20 @@ class ETLAlchemySource():
             self.logger.warning(
                 "Type '{0}' has no base class!".format(
                     column.type.__class__.__name__))
+        elif "VARBINARY" in base_classes:
+            if self.dst_engine.dialect.name.lower() == "postgresql":
+                for r in raw_rows:
+                    if r[idx] is not None:
+                        r[idx] = r[idx].encode('hex')
+            column_copy.type = LargeBinary()
         elif "_BINARY" in base_classes:
-            self.logger.warning("Base types include '_Binary'")
+            for r in raw_rows:
+                if r[idx] is not None:
+                    r[idx] = r[idx].encode('hex')
+            if self.dst_engine.dialect.name.lower() == "postgresql":
+                column_copy.type = BYTEA()
+            else:
+                column_copy.type = BINARY()
         else:
             #####################################################
             # Column type is not dialect-specific, but...
@@ -511,23 +532,24 @@ class ETLAlchemySource():
             raw_rows, self.current_ordered_table_columns, T_src.name)
 
     def create_table(self, T_dst_exists, T):
-        if not T_dst_exists:
-            self.logger.info(" --> Creating table '{0}'".format(T.name))
-            try:
-                T.create()
+        with self.dst_engine.connect() as conn:
+            if not T_dst_exists:
+                self.logger.info(" --> Creating table '{0}'".format(T.name))
+                try:
+                    T.create(conn)
+                    return True
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to create table '{0}'\n\n{1}".format(
+                            T.name, e))
+                    raise
+            else:
+                self.logger.warning(
+                    "Table '{0}' already exists - not creating table, " +
+                    "reflecting to get new changes instead..".format(T.name))
+                self.tgt_insp.reflecttable(T, None)
                 return True
-            except Exception as e:
-                self.logger.error(
-                    "Failed to create table '{0}'\n\n{1}".format(
-                        T.name, e))
-                raise
-        else:
-            self.logger.warning(
-                "Table '{0}' already exists - not creating table, " +
-                "reflecting to get new changes instead..".format(T.name))
-            self.tgt_insp.reflecttable(T, None)
-            return True
-            # We need to Upsert the data...
+                # We need to Upsert the data...
 
     def send_data(self, table, columns):
         Session = sessionmaker(bind=self.dst_engine)
@@ -616,6 +638,7 @@ class ETLAlchemySource():
             password = self.dst_engine.url.password
             db_name = self.dst_engine.url.database
             host = self.dst_engine.url.host
+            
             import psycopg2
             conn = psycopg2.connect(
                 """
@@ -639,8 +662,8 @@ class ETLAlchemySource():
             with open(data_file_path, 'r') as fp_psql:
                 # Most use command below, which loads data_file from STDIN to
                 # work-around permissions issues...
-                cur.copy_from(fp_psql, str(table), null="NULL", sep="|",
-                              columns=tuple(map(lambda c: str(c), columns)))
+                cur.copy_from(fp_psql, '"'+table+'"', null="NULL", sep="|",
+                              columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
             conn.commit()
             conn.close()
             self.logger.info("Done.")

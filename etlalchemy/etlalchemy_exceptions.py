@@ -7,6 +7,9 @@ class DBApiNotFound(Exception):
             'mssql+pyodbc': 'pyodbc',
             'sqlite': 'sqlite3'
         }
+        dialect_to_walkthrough_urls = {
+            'oracle+cx_oracle': 'sharrington/databases/oracle/install-cx_oracle-mac',
+        }
         dialect = conn_string.split(":")[0]
         db_api = dialect_to_db_apis.get(dialect) or \
             "No driver found for dialect '{0}'".format(dialect)
@@ -23,9 +26,9 @@ class DBApiNotFound(Exception):
   **  --> machine! The driver is needed in order to install
   **  --> the Python DB API ('{1}').
   **  --> (see the following link for instructions):
-  ** https://thelaziestprogrammer.com/{1}
+  ** https://thelaziestprogrammer.com/{2}
   **********************************************************
-        """.format(conn_string, db_api)
+        """.format(conn_string, db_api, dialect_to_walkthrough_urls.get(dialect) or "")
 
     def __str__(self):
         return self.msg
