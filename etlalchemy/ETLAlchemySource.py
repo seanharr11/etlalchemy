@@ -662,8 +662,8 @@ class ETLAlchemySource():
             with open(data_file_path, 'r') as fp_psql:
                 # Most use command below, which loads data_file from STDIN to
                 # work-around permissions issues...
-                cur.copy_from(fp_psql, '"'+table+'"', null="NULL", sep="|",
-                              columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
+                cur.copy_from(fp_psql, '"'+table+'"', null="NULL", sep="|")
+                              #columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
             conn.commit()
             conn.close()
             self.logger.info("Done.")
