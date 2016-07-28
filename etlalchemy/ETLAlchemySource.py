@@ -987,8 +987,8 @@ class ETLAlchemySource():
                     if not should_keep_column:
                         # Schedule it to be deleted
                         self.schema_transformer.schedule_deletion_of_column(
-                            col=column.name,
-                            table=T.name
+                            column.name,
+                            T.name
                            )
 
                 if self.dst_engine.dialect.name.lower() == "mysql":
