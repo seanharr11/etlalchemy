@@ -122,8 +122,8 @@ class ETLAlchemySource():
         self.unique_constraint_violations = []
         self.unique_constraint_violation_count = 0
 
-        self.skip_column_if_empty = skip_table_if_empty
-        self.skip_table_if_empty = skip_column_if_empty
+        self.skip_column_if_empty = skip_column_if_empty
+        self.skip_table_if_empty = skip_table_if_empty
 
         self.total_indexes = 0
         self.index_count = 0
@@ -399,11 +399,13 @@ class ETLAlchemySource():
             column,
             column_copy,
             raw_rows):
+        self.logger.info("Checking column for elimination status...")
         old_column_class = column.type.__class__
         table_name = T.name
         null = True
+        idx = self.current_ordered_table_columns.index(column.name)
         for row in raw_rows:
-            data = row[self.current_ordered_table_columns.index(column.name)]
+            data = row[idx]
             if data is not None:
                 # There exists at least 1 row with a non-Null value for the
                 # column
@@ -416,6 +418,9 @@ class ETLAlchemySource():
 
         oldColumns = self.current_ordered_table_columns
         oldColumnsLength = len(self.current_ordered_table_columns)
+        ##################################
+        # Transform the column schema below
+        ##################################
         self.current_ordered_table_columns = \
             self.schema_transformer.transform_column(
                 column_copy, T.name, self.current_ordered_table_columns)
@@ -439,10 +444,7 @@ class ETLAlchemySource():
             else:
                 # column_copy has updated datatype...
                 T.append_column(column_copy)
-            logging.info(
-                " -----> '{0}' ({1}) => '{2}' ({3})".format(
-                    column.name, str(old_column_class), column_copy.name, str(
-                        column_copy.type.__class__)))
+            self.logger.info("Column '{0}' renamed to '{1}'".format(oldColumns[idx], self.current_ordered_table_columns[idx]))
             return True
         elif null and self.skip_column_if_empty:
             self.null_column_count += 1
@@ -461,14 +463,7 @@ class ETLAlchemySource():
                 pass
                 # TODO Add the column to the table...
             else:
-                # column_copy has updated datatype...
                 T.append_column(column_copy)
-            logging.info(" ******* " +
-                         str(column.name) +
-                         " == " +
-                         str(old_column_class) +
-                         " => " +
-                         str(column_copy.type.__class__))
             return True
 
     def transform_table(self, T):

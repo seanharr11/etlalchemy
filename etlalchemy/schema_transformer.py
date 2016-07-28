@@ -36,6 +36,7 @@ class SchemaTransformer():
             'New Column Name': '',
             'New Column Type': ''
         })
+        self.logger.info("Scheduling '{0}' to be deleted due to column being empty".format(col))
         if not self.column_transformations.get(st.old_table):
             # No column transformations exist for the table
             self.column_transformations[st.old_table] = {}
@@ -167,13 +168,20 @@ class SchemaTransformer():
         }
         if this_table_st is None:
             return
+        column_transformers = []
+        for c in columns:
+            if this_table_st.get(c):
+                column_transformers.append(this_table_st.get(c))
+            else:
+                column_transformers.append(None)
+        number_columns = len(columns)
         for r in rows:
-            for col in columns:
-                idx = columns.index(col)
-                st = this_table_st.get(col)
-                if st:# Then there is a transformation defined for this column...
-                    if st.delete:
-                        del r[idx]
+            for i in range(number_columns-1, -1 ,-1):
+                column_transformer = column_transformers[i]
+                if column_transformer:
+                    # Then there is a transformation defined for this column...
+                    if column_transformer.delete:
+                        del r[i]
                     elif st.new_type in [None, ""]:
                         continue
                     # Handle type conversions here...
