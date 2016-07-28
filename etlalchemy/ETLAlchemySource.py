@@ -202,7 +202,7 @@ class ETLAlchemySource():
                         # note that '|' is the delimter for postgrsql import file
                         row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-").\
                                 decode('utf-8','ignore').encode("utf-8")
-            if max_data_length > 256:
+            if max_data_length > 256 or "TEXT" in base_classes:
                 self.logger.info("Converting VARCHAR -> TEXT")
                 column_copy.type = Text()
             elif max_data_length < varchar_length and max_data_length != 0:
@@ -982,8 +982,15 @@ class ETLAlchemySource():
                     """"""""""""""""""""""""""""""
                     """ *** ELIMINATION I *** """
                     """"""""""""""""""""""""""""""
-                    self.add_or_eliminate_column(
+                    should_keep_column = self.add_or_eliminate_column(
                         T, T_dst_exists, column, column_copy, raw_rows)
+                    if not should_keep_column:
+                        # Schedule it to be deleted
+                        self.schema_transformer.schedule_deletion_of_column(
+                            col=column.name,
+                            table=T.name
+                           )
+
                 if self.dst_engine.dialect.name.lower() == "mysql":
                     #######################################
                     # Remove auto-inc on composite PK's

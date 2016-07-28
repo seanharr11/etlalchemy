@@ -28,6 +28,25 @@ class SchemaTransformer():
 
         def __str__(self):
             return self.old_table + "." + self.old_column
+    def schedule_deletion_of_column(col, table):
+        st = self.ColumnTransformation({
+            'Delete': "true",
+            'Table Name': table,
+            'Column Name': col,
+            'New Column Name': '',
+            'New Column Type': ''
+        })
+        if not self.column_transformations.get(st.old_table):
+            # No column transformations exist for the table
+            self.column_transformations[st.old_table] = {}
+            self.column_transformations[st.old_table][st.old_column] = st
+        elif self.column_transformation[st.old_table].get(st.old_column):
+            # There ALREADY EXISTS a transformation on this column, UPDATE IT
+            self.column_transformations[st.old_table][st.old_column].delete = True
+            self.column_transformations[st.old_table][st.old_column] = st
+        else:
+            # Transformations exist on the table, not nothing on the column
+            self.column_transformations[st.old_table][st.old_column] = st
 
     def __init__(self, column_transform_file,
                  table_transform_file, global_renamed_col_suffixes={}):
@@ -58,7 +77,7 @@ class SchemaTransformer():
                 for row in dr:
                     st = self.TableTransformation(row)
                     self.table_transformations[st.old_table] = st
-
+    
     # Returns False if deleted...
     def transform_table(self, table):
         thisTableTT = self.table_transformations.get(table.name.lower())
