@@ -304,6 +304,7 @@ class ETLAlchemySource():
                     splt = str(data).split(".")
                     if len(splt) == 1:
                         intCount += 1
+                        maxDigit = max(data, maxDigit)
                         continue
 
                     left_hand_digits = splt[0]
@@ -319,16 +320,22 @@ class ETLAlchemySource():
                                              mantissa_max_value)
                 elif data.__class__.__name__ == 'int':
                     intCount += 1
-                    maxDigit = data if data > maxDigit else maxDigit
+                    maxDigit = max(data, maxDigit)
+                else:
+                    self.logger.critical(data.__class__.__name__)
             self.logger.info(" --> " + str(column.name) +
                              "..." + str(type_count))
+            #self.logger.info("Max Digit Length: {0}".format(str(len(str(maxDigit)))))
+            #self.logger.info("Max Mantissa Digits: {0}".format(str(mantissa_max_digits)))
+            #self.logger.info("Max Left Hand Digit: {0}".format(str(left_hand_max_digits)))
+            #self.logger.info("Total Left Max Digits: {0}".format(str(max(len(str(maxDigit)), left_hand_max_digits))))
             if mantissa_max_value > 0:
-                total_left_digits = max(
-                    len(str(maxDigit)), (mantissa_max_digits))
+                cum_max_left_digits = max(
+                    len(str(maxDigit)), (left_hand_max_digits))
+                self.logger.info("Numeric({0}, {1})".format(str(cum_max_left_digits + mantissa_max_digits), str(mantissa_max_digits)))
                 column_copy.type = Numeric(
-                    total_left_digits +
-                    left_hand_max_digits,
-                    mantissa_max_digits)
+                    precision=cum_max_left_digits + mantissa_max_digits,
+                    scale=mantissa_max_digits)
                 if intCount > 0:
                     self.logger.warning(
                         "Column '" +
