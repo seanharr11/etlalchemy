@@ -164,7 +164,14 @@ class ETLAlchemySource():
         self.logger.info("({0}) {1}".format(column.name,
             column.type.__class__.__name__))
         self.logger.info("Bases: {0}".format(str(base_classes))) 
+
+        # Assume the column is empty, unless told otherwise
+        null = True
+
         if "ENUM" in base_classes:
+            for r in raw_rows:
+                if r[idx] is not None:
+                    null = False
             # Hack for error 'postgresql enum type requires a name'
             if self.dst_engine.dialect.name.lower() == "postgresql":
                 column_copy.type = column.type
@@ -352,12 +359,17 @@ class ETLAlchemySource():
                     for r in raw_rows:
                         if r[idx] is not None:
                             r[idx] = int(r[idx])
-                      
         elif column.type.__class__.__name__ == "BIT":
+            for r in raw_rows:
+                if r[idx] is not None:
+                    null = False
             self.logger.info("Found column of type 'BIT' -> " +
                 "coercing to Boolean'")
             column_copy.type.__class__ = sqlalchemy.types.Boolean
         elif "TYPEENGINE" in base_classes:
+            for r in raw_rows:
+                if r[idx] is not None:
+                    null = False
             self.logger.warning(
                 "Type '{0}' has no base class!".format(
                     column.type.__class__.__name__))
@@ -365,11 +377,13 @@ class ETLAlchemySource():
             if self.dst_engine.dialect.name.lower() == "postgresql":
                 for r in raw_rows:
                     if r[idx] is not None:
+                        null = False
                         r[idx] = r[idx].encode('hex')
             column_copy.type = LargeBinary()
         elif "_BINARY" in base_classes:
             for r in raw_rows:
                 if r[idx] is not None:
+                    null = False
                     r[idx] = r[idx].encode('hex')
             if self.dst_engine.dialect.name.lower() == "postgresql":
                 column_copy.type = BYTEA()
@@ -381,6 +395,10 @@ class ETLAlchemySource():
             # ... we need to check for null columns still b/c
             # ... we default to True !
             ######################################################
+            for r in raw_rows:
+                if r[idx] is not None:
+                    null = False
+            # Reset collations...
             if hasattr(column.type, 'collation'):
                 column_copy.type.collation = None
             self.logger.info("({0}) Class: ".format(
@@ -390,6 +408,27 @@ class ETLAlchemySource():
                 str(column.type.__class__.__bases__))
 
             column_copy.type.__class__ = column.type.__class__.__bases__[0]
+        #########################################
+        # If the entire column is null, and we specify
+        # the option below (skip_column_if_empty),
+        # schedule a 'column_transformer' to delete the
+        # column later ...
+        ########################################
+        if null and self.skip_column_if_empty:
+            # The column should be deleted due to it being empty
+            self.null_column_count += 1
+            self.null_columns.append(column.table.name + "." + column.name)
+            self.logger.warning(
+                "Column '" +
+                column.table.name +
+                "." +
+                column_copy.name +
+                "' has all NULL entries, skipping...")
+            self.schema_transformer.schedule_deletion_of_column(
+                    column.name,
+                    column.table.name
+                   )
+        
         return column_copy
 
     def add_or_eliminate_column(
@@ -404,12 +443,7 @@ class ETLAlchemySource():
         table_name = T.name
         null = True
         idx = self.current_ordered_table_columns.index(column.name)
-        for row in raw_rows:
-            data = row[idx]
-            if data is not None:
-                # There exists at least 1 row with a non-Null value for the
-                # column
-                null = False
+        
         cname = column_copy.name
         columnHasGloballyIgnoredSuffix = len(
             filter(
@@ -425,7 +459,7 @@ class ETLAlchemySource():
             self.schema_transformer.transform_column(
                 column_copy, T.name, self.current_ordered_table_columns)
         if oldColumnsLength != len(self.current_ordered_table_columns):
-            # A column is scheduled to be deleted
+            # A column is scheduled to be deleted in "column_transformations_file"
             self.logger.warning(
                 " ------> Column '" +
                 cname +
@@ -436,7 +470,7 @@ class ETLAlchemySource():
                 pass
                 # TODO: Delete the column from T_dst
             return False
-        elif oldColumns != self.current_ordered_table_columns:
+        elif oldColumns[idx] != self.current_ordered_table_columns[idx]:
             # Column was renamed
             if T_dst_exists:
                 pass
@@ -446,18 +480,6 @@ class ETLAlchemySource():
                 T.append_column(column_copy)
             self.logger.info("Column '{0}' renamed to '{1}'".format(oldColumns[idx], self.current_ordered_table_columns[idx]))
             return True
-        elif null and self.skip_column_if_empty:
-            self.null_column_count += 1
-            self.null_columns.append(table_name + "." + column_copy.name)
-            self.logger.warning(
-                "Column '" +
-                table_name +
-                "." +
-                column_copy.name +
-                "' has all NULL entries, skipping...")
-            return False
-            # TODO: When adding indexes and FKs, check to make sure the FK or
-            # index isn't on this column...
         else:
             if T_dst_exists:
                 pass
@@ -524,7 +546,7 @@ class ETLAlchemySource():
         # Transform the schema second (by updating the column names [keys of
         # dict])
         self.schema_transformer.transform_rows(
-            raw_rows, self.current_ordered_table_columns, T_src.name)
+            raw_rows, self.original_ordered_table_columns, T_src.name)
 
     def create_table(self, T_dst_exists, T):
         with self.dst_engine.connect() as conn:
@@ -924,7 +946,9 @@ class ETLAlchemySource():
                 ########################################################
                 cols = map(lambda c: c.name, T_src.columns)
                 self.current_ordered_table_columns = [None] * len(cols)
+                self.original_ordered_table_columns = [None] * len(cols)
                 for i in range(0, len(cols)):
+                    self.original_ordered_table_columns[i] = cols[i]
                     self.current_ordered_table_columns[i] = cols[i]
                 ###################################
                 # Grab raw rows for data type checking...
@@ -958,6 +982,9 @@ class ETLAlchemySource():
 
                 # TODO: Use column/table mappers, would need to update foreign
                 # keys...
+                
+
+            
                 for column in T_src.columns:
                     self.column_count += 1
                     ##############################
@@ -977,14 +1004,8 @@ class ETLAlchemySource():
                     """"""""""""""""""""""""""""""
                     """ *** ELIMINATION I *** """
                     """"""""""""""""""""""""""""""
-                    should_keep_column = self.add_or_eliminate_column(
+                    self.add_or_eliminate_column(
                         T, T_dst_exists, column, column_copy, raw_rows)
-                    if not should_keep_column:
-                        # Schedule it to be deleted
-                        self.schema_transformer.schedule_deletion_of_column(
-                            column.name,
-                            T.name
-                           )
 
                 if self.dst_engine.dialect.name.lower() == "mysql":
                     #######################################
