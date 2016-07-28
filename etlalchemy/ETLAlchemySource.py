@@ -321,8 +321,6 @@ class ETLAlchemySource():
                 elif data.__class__.__name__ == 'int':
                     intCount += 1
                     maxDigit = max(data, maxDigit)
-                else:
-                    self.logger.critical(data.__class__.__name__)
             self.logger.info(" --> " + str(column.name) +
                              "..." + str(type_count))
             #self.logger.info("Max Digit Length: {0}".format(str(len(str(maxDigit)))))
