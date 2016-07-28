@@ -155,23 +155,35 @@ class SchemaTransformer():
 
     def transform_rows(self, rows, columns, tablename):
         this_table_st = self.column_transformations.get(tablename)
+        bool_dict = {
+                'Y': True,
+                'N': False,
+                1: True,
+                0: False,
+                '1': True,
+                '0': False,
+                'y': True,
+                'n': False,
+        }
         if this_table_st is None:
             return
         for r in rows:
             for col in columns:
-                st = this_table_st.get(col)
                 idx = columns.index(col)
-                if st and st.action.lower() in ["delete", "rename"]:
-                    # Then there is a transformation defined for this column...
-                    try:
-                        if st.action.lower() == "rename":
-                            if this_table_st.get(st.new_column):
-                                if this_table_st[st.new_column].action.lower() ==\
-                                        "delete":
-                                    # Then this column will be deleted
-                                    # later! We must avoid this!
-                                    del this_table_st[st.new_column]
-                        elif st.action.lower() == "delete":
-                            del r[idx]
-                    except KeyError as e:
-                        raise e
+                st = this_table_st.get(col)
+                if st:# Then there is a transformation defined for this column...
+                    if st.delete:
+                        del r[idx]
+                    elif st.new_type in [None, ""]:
+                        continue
+                    # Handle type conversions here...
+                    elif st.new_type == "Integer":
+                            r[idx] = int(r[idx])
+                    elif st.new_type in ["String", "Text"]:
+                        r[idx] = str(r[idx])
+                    elif st.new_type in ["Float", "Decimal"]:
+                        r[idx] = float(r[idx])
+                    elif st.new_type == "Boolean":
+                        r[idx] = bool_dict[r[idx]]
+                
+  
