@@ -28,7 +28,7 @@ class SchemaTransformer():
 
         def __str__(self):
             return self.old_table + "." + self.old_column
-    def schedule_deletion_of_column(col, table):
+    def schedule_deletion_of_column(self, col, table):
         st = self.ColumnTransformation({
             'Delete': "true",
             'Table Name': table,
