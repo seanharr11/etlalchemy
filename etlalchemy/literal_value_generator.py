@@ -15,8 +15,8 @@ def _generate_literal_value_for_csv(value, dialect):
             # No support for 'quote' enclosed strings
             return "%s" % value
         else:
-            value = value.replace("'", "''")
-            return "'%s'" % value
+            value = value.replace('"', '""')
+            return "\"%s\"" % value
     elif value is None:
         return "NULL"
     elif isinstance(value, bool):
@@ -167,7 +167,7 @@ def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
     lines = []
     separator = ","
     # Determine the separator based on Target DB 
-    if dialect.name.lower() in ["postgresql", "sqlite"]:
+    if dialect.name.lower() in ["sqlite"]:
         separator = "|"
     elif dialect.name.lower() in ["mssql"]:
         separator = "|,"

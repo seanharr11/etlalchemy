@@ -1,0 +1,1 @@
+git+git://github.com/daviddrysdale/python-phonenumbers.git@python3#egg=phonenumbers3k-5.6b1

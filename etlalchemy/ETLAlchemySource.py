@@ -191,10 +191,6 @@ class ETLAlchemySource():
             # Strip collation here ...
             ##################################
             column_copy.type.collation = None
-            if self.dst_engine.dialect.name.lower() == 'postgresql':
-                # psycopg2's 'copy_from' method does not allow you to enclose columns in strings,
-                # so '\r' and '\n' are interpreted as literals, and break the import
-                self.logger.info(" ---> Replace carriage-returns '^M'  with '\\r'")
             max_data_length = 0
             for row in raw_rows:
                 data = row[idx]
@@ -204,11 +200,6 @@ class ETLAlchemySource():
                     if len(data) > max_data_length:
                         max_data_length = len(data)
 
-                    # Replace carriage-returns
-                    #if self.dst_engine.dialect.name.lower() == 'postgresql':
-                        # note that '|' is the delimter for postgrsql import file
-                        #row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-").\
-                        #        decode('utf-8','ignore').encode("utf-8")
             if max_data_length > 256 or "TEXT" in base_classes:
                 self.logger.info("Converting VARCHAR -> TEXT")
                 column_copy.type = Text()
@@ -686,10 +677,10 @@ class ETLAlchemySource():
                 # work-around permissions issues...
                 null_value = 'NULL'
                 delimiter = '|'
-                quote = "'"
+                quote = "\'"
                 #escape = '/'
-                copy_from_stmt = "COPY {0} FROM STDIN WITH CSV NULL AS '{1}' QUOTE AS '{2}' DELIMITER AS '{3}'"\
-                    .format(table, null_value, delimiter, quote)
+                copy_from_stmt = "COPY {0} FROM STDIN WITH CSV NULL '{1}'"\
+                    .format(table, null_value, quote, delimiter)
                 cur.copy_expert(copy_from_stmt, fp_psql)
                               #columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
             conn.commit()
@@ -905,7 +896,7 @@ class ETLAlchemySource():
             #######################
             self.times[table_name] = {}
             self.table_count += 1
-            self.logger.info("Migrating Table Schema '" + table_name + "'...")
+            self.logger.info("Reading Table Schema '" + table_name + "'...")
             pk_count = 0
             auto_inc_count = 0
 
@@ -1217,8 +1208,8 @@ class ETLAlchemySource():
                     #####################################
                     if column_transformer and\
                      column_transformer.get(c) and\
-                     column_transformer[c].newColumn not in ["", None]:
-                        c = column_transformer[c].newColumn
+                     column_transformer[c].new_column not in ["", None]:
+                        c = column_transformer[c].new_column
                     #####################################
                     # Check to see if the table and colum nexist
                     #####################################
@@ -1313,6 +1304,7 @@ class ETLAlchemySource():
         # Add FKs
         ############################
         dst_meta = MetaData()
+        
         if self.dst_engine.dialect.name.lower() == "mssql":
             raise Exception(
                 "Adding Constraints to MSSQL is not supported" +
@@ -1391,12 +1383,14 @@ class ETLAlchemySource():
                 for c in fk['constrained_columns']:
                     if cons_column_transformer and \
                      cons_column_transformer.get(c) and \
-                     cons_column_transformer[c].newColumn not in ["", None]:
-                        c = cons_column_transformer[c].newColumn
+                     cons_column_transformer[c].new_column not in ["", None]:
+                        c = cons_column_transformer[c].new_column
                     constrained_columns.append(c)
-                constrained_cols = map(
-                    lambda x: T.columns.get(x),
-                    constrained_columns)
+                constrained_cols = filter(lambda c: c is not None,
+                        map(lambda x: T.columns.get(x),
+                              constrained_columns))
+                         
+
                 ################################
                 # Check that the constrained columns
                 # exists in the destiation db schema
