@@ -205,10 +205,10 @@ class ETLAlchemySource():
                         max_data_length = len(data)
 
                     # Replace carriage-returns
-                    if self.dst_engine.dialect.name.lower() == 'postgresql':
+                    #if self.dst_engine.dialect.name.lower() == 'postgresql':
                         # note that '|' is the delimter for postgrsql import file
-                        row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-").\
-                                decode('utf-8','ignore').encode("utf-8")
+                        #row[idx] = data.replace('\n','').replace('\r', '').replace("|", "-").\
+                        #        decode('utf-8','ignore').encode("utf-8")
             if max_data_length > 256 or "TEXT" in base_classes:
                 self.logger.info("Converting VARCHAR -> TEXT")
                 column_copy.type = Text()
@@ -684,7 +684,13 @@ class ETLAlchemySource():
             with open(data_file_path, 'r') as fp_psql:
                 # Most use command below, which loads data_file from STDIN to
                 # work-around permissions issues...
-                cur.copy_from(fp_psql, '"'+table+'"', null="NULL", sep="|")
+                null_value = 'NULL'
+                delimiter = '|'
+                quote = "'"
+                #escape = '/'
+                copy_from_stmt = "COPY {0} FROM STDIN WITH CSV NULL AS '{1}' QUOTE AS '{2}' DELIMITER AS '{3}'"\
+                    .format(table, null_value, delimiter, quote)
+                cur.copy_expert(copy_from_stmt, fp_psql)
                               #columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
             conn.commit()
             conn.close()

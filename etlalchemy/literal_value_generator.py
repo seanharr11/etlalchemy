@@ -11,11 +11,11 @@ def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
     
     if isinstance(value, basestring):
-        if dialect_name in ['sqlite', 'mssql', 'postgresql']:
+        if dialect_name in ['sqlite', 'mssql']:
             # No support for 'quote' enclosed strings
             return "%s" % value
         else:
-            value = value.replace("''", "'")
+            value = value.replace("'", "''")
             return "'%s'" % value
     elif value is None:
         return "NULL"
