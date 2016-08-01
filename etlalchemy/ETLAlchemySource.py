@@ -199,7 +199,8 @@ class ETLAlchemySource():
                     # Update varchar(size)
                     if len(data) > max_data_length:
                         max_data_length = len(data)
-
+                    # Ignore non-utf8 chars
+                    row[idx] = row[idx].decode('utf-8','ignore').encode("utf-8")
             if max_data_length > 256 or "TEXT" in base_classes:
                 self.logger.info("Converting VARCHAR -> TEXT")
                 column_copy.type = Text()
@@ -369,7 +370,7 @@ class ETLAlchemySource():
             self.logger.warning(
                 "Type '{0}' has no base class!".format(
                     column.type.__class__.__name__))
-        elif "VARBINARY" in base_classes:
+        elif "VARBINARY" in base_classes or "LARGEBINARY" in base_classes:
             if self.dst_engine.dialect.name.lower() == "postgresql":
                 for r in raw_rows:
                     if r[idx] is not None:
@@ -679,7 +680,7 @@ class ETLAlchemySource():
                 delimiter = '|'
                 quote = "\'"
                 #escape = '/'
-                copy_from_stmt = "COPY {0} FROM STDIN WITH CSV NULL '{1}'"\
+                copy_from_stmt = "COPY \"{0}\" FROM STDIN WITH CSV NULL '{1}'"\
                     .format(table, null_value, quote, delimiter)
                 cur.copy_expert(copy_from_stmt, fp_psql)
                               #columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
