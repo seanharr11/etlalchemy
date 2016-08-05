@@ -1,3 +1,4 @@
+import codecs
 from itertools import islice
 from literal_value_generator import dump_to_sql_statement, dump_to_csv,\
     dump_to_oracle_insert_statements
@@ -141,6 +142,12 @@ class ETLAlchemySource():
 
         self.times = {}  # Map Tables to Names...
 
+    def get_nearest_power_of_two(self, num):
+        i = 2
+        while i < num:
+            i *= 2
+        return i
+
     def standardize_column_type(self, column, raw_rows):
         old_column_class = column.type.__class__
         column_copy = Column(column.name,
@@ -199,18 +206,24 @@ class ETLAlchemySource():
                     # Update varchar(size)
                     if len(data) > max_data_length:
                         max_data_length = len(data)
-                    # Ignore non-utf8 chars
-                    row[idx] = row[idx].decode('utf-8','ignore').encode("utf-8")
-            if max_data_length > 256 or "TEXT" in base_classes:
-                self.logger.info("Converting VARCHAR -> TEXT")
-                column_copy.type = Text()
-            elif max_data_length < varchar_length and max_data_length != 0:
-                if self.compress_varchar == True:
-                    self.logger.warning("Reduced column size from VARCHAR({0}) to VARCHAR({1})"
-                        .format(str(varchar_length), str(max_data_length)))
-                    column_copy.type.length = max_data_length
+                    if isinstance(row[idx], unicode):
+                        row[idx] = row[idx].encode('utf-8', 'ignore')
+                    else:
+                        row[idx] = row[idx].decode('utf-8', 'ignore').encode('utf-8')
+            if max_data_length > 0:
+                # The column is not empty...
+                column_size = self.get_nearest_power_of_two(max_data_length)
+                column_copy.type = String(column_size)
+                self.logger.info("Converting to -> VARCHAR({0} (maxsize: {1})".format(str(column_size), str(max_data_length)))
+            elif varchar_length > 0:
+                # The column is empty BUT has a predfined size
+                column_size = self.get_nearest_power_of_two(varchar_length)
+                column_copy.type = String(column_size)
+                self.logger.info("Converting to -> VARCHAR({0} (prevsize: {1})".format(str(column_size), str(varchar_length)))
             else:
-                column_copy.type.length = varchar_length
+                # The column is empty and has NO predefined size
+                column_copy.type = Text()
+                self.logger.info("Converting to Text()")
         elif "UNICODE" in base_classes:
             #########################################
             # Get the VARCHAR size of the column...
@@ -230,9 +243,10 @@ class ETLAlchemySource():
                             column.name, str(varchar_length)))
                 if data is not None:
                     null = False
-                # Check for 'NULL'
-                if row[idx]:
-                    row[idx] = row[idx].decode('utf-8', 'ignore')
+                    if isinstance(row[idx], unicode):
+                        row[idx] = row[idx].encode('utf-8', 'ignore')
+                #if row[idx]:
+                #    row[idx] = row[idx].decode('utf-8', 'ignore')
 
         elif "DATE" in base_classes or "DATETIME" in base_classes:
             ####################################
@@ -960,7 +974,8 @@ class ETLAlchemySource():
                     "Building query to fetch all rows from {0}".format(
                         T_src.name))
                 
-                cnt = self.engine.execute("SELECT Count(*) FROM {0}".format(T_src.name)).fetchone()[0]
+
+                cnt = self.engine.execute(T_src.count()).fetchone()[0]
                 resultProxy = self.engine.execute(T_src.select())
                 self.logger.info("Done. ({0} total rows)".format(str(cnt)))
                 j = 0
