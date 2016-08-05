@@ -16,8 +16,8 @@ History
 
 * Fixed bug which threw an exception when source is PostgreSQL, and table is capitalized.
 
-```engine.execute(SELECT COUNT(*) FROM Capitalizedtable)``` _replaced with_
-```T_with_capitalized_name..count().fetchone() for cross-db support```
+``engine.execute(SELECT COUNT(*) FROM Capitalizedtable)`` *replaced with*
+``T_with_capitalized_name..count().fetchone() for cross-db support``
 
 
 **Other Changes**:
