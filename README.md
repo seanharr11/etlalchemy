@@ -3,7 +3,7 @@ Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Rea
 
 # Installation
 
-```
+```bash
 pip install etlalchemy
 # On El Capitan:
 ### pip install --ignore-installed etlalchemy
