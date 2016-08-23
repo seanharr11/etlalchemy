@@ -1,6 +1,14 @@
 # etlalchemy
 Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Read more here...](http://thelaziestprogrammer.com/sharrington/databases/migrating-between-databases-with-etlalchemy)*
 
+# Installation
+
+```
+pip install etlalchemy
+# On El Capitan:
+### pip install --ignore-installed etlalchemy
+```
+
 # Basic Usage
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
