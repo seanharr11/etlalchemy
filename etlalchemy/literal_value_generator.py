@@ -3,13 +3,13 @@ import decimal
 import datetime
 # Find the best implementation available on this platform
 try:
-    from cStringIO import StringIO
+    from io import StringIO
 except:
-    from StringIO import StringIO
+    from io import StringIO
 
 def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
-    
+
     if isinstance(value, basestring):
         if dialect_name in ['sqlite', 'mssql']:
             # No support for 'quote' enclosed strings
