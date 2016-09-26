@@ -4,9 +4,12 @@ import datetime
 # Find the best implementation available on this platform
 try:
     from cStringIO import StringIO
-except:
-    from StringIO import StringIO
-
+except ImportError:
+    try:
+        from StringIO import StringIO
+    except ImportError:
+        from io import StringIO
+    
 def _generate_literal_value_for_csv(value, dialect):
     dialect_name = dialect.name.lower()
     

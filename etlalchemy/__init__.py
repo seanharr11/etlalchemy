@@ -1,2 +1,2 @@
-from ETLAlchemySource import ETLAlchemySource
-from ETLAlchemyTarget import ETLAlchemyTarget
+from .ETLAlchemySource import ETLAlchemySource
+from .ETLAlchemyTarget import ETLAlchemyTarget

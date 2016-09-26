@@ -1,8 +1,10 @@
 class DBApiNotFound(Exception):
     def __init__(self, conn_string):
+
         dialect_to_db_apis = {
             'oracle+cx_oracle': 'cx_Oracle',
             'mysql': 'MySQL-python',
+            'mysql+pymysql': 'pymysql',
             'postgresql': 'psycopg2',
             'mssql+pyodbc': 'pyodbc',
             'sqlite': 'sqlite3'

@@ -1,6 +1,6 @@
 import codecs
 from itertools import islice
-from literal_value_generator import dump_to_sql_statement, dump_to_csv,\
+from .literal_value_generator import dump_to_sql_statement, dump_to_csv,\
     dump_to_oracle_insert_statements
 import random
 from migrate.changeset.constraint import ForeignKeyConstraint
@@ -25,8 +25,8 @@ from sqlalchemy.dialects.postgresql import BYTEA
 import inspect as ins
 import re
 import csv
-from schema_transformer import SchemaTransformer
-from etlalchemy_exceptions import DBApiNotFound
+from .schema_transformer import SchemaTransformer
+from .etlalchemy_exceptions import DBApiNotFound
 import os
 
 # Parse the connn_string to find relevant info for each db engine #
