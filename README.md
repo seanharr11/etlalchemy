@@ -1,6 +1,8 @@
 # etlalchemy
 Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Read more here...](http://thelaziestprogrammer.com/sharrington/databases/migrating-between-databases-with-etlalchemy)*
 
+[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA)
+
 # Installation
 
 ```bash
