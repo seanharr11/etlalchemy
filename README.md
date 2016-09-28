@@ -139,7 +139,7 @@ This project has [it's origins](http://thelaziestprogrammer.com/migrating-betwee
 
 
 # Donations
-[Donations are welcome](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA]), but **Pull Requests** are better!
+[Donations are welcome](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA), but **Pull Requests** are better!
 
 _We are working on getting a [Gratipay](https://gratipay.com/etlalchemy/) project approved, which would allow recurring donations to help fund our team!_
 
