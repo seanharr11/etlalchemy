@@ -130,10 +130,21 @@ target.migrate()
 2. A regression test suite is needed, as is funding to setup an environment for Oracle and MSSQL instances.. 
 3. There are definitely some untested column types here amongst all 5 RDBMS's. Please create *pull requests* or open *issues* that describe the problem **in detail** as these arise!
 
-# Other
-**Please contact me if you are interested in contributing to the project. Donations are welcome, but pull requests are better!**
 
-You can [*checkout the inspiration and history*](http://thelaziestprogrammer.com/migrating-between-databases-with-etlalchemy) behind this project here...
+# Contributors
+We are always looking for contributors! 
+
+This project has [it's origins](http://thelaziestprogrammer.com/migrating-between-databases-with-etlalchemy) in solving the problem of migrating off of bulky, expensive enterprise-level databases. If the project has helped you to migrate off of these databases, and onto open-source RDBMS's, the best way to show your support is by opening Pull Requests and Issues.
+
+
+
+# Donations
+** (Donations are welcome)[https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA], but Pull Requests are better!**
+
+_We are working on getting a [Gratipay](https://gratipay.com/etlalchemy/) project approved, which would allow recurring donations to help fund our team!_
+
+
+# Other
 
 For help installing cx_Oracle on a Mac (El Capitan + cx_Oracle = Misery), [check out this blog post](http://thelaziestprogrammer.com/sharrington/databases/oracle/install-cx_oracle-mac) for help. 
 
