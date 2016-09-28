@@ -146,7 +146,7 @@ class ETLAlchemySource():
         i = 2
         while i < num:
             i *= 2
-        return i
+        return i - 1
 
     def standardize_column_type(self, column, raw_rows):
         old_column_class = column.type.__class__
@@ -1000,8 +1000,6 @@ class ETLAlchemySource():
 
                 # TODO: Use column/table mappers, would need to update foreign
                 # keys...
-                
-
             
                 for column in T_src.columns:
                     self.column_count += 1
