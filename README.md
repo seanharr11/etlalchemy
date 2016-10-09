@@ -1,8 +1,8 @@
 # etlalchemy
 Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Read more here...](http://thelaziestprogrammer.com/sharrington/databases/migrating-between-databases-with-etlalchemy)*
 
-[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA)
-
+[![Donate](https://img.shields.io/badge/paypal-donate-blue.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA)
+[![Donate](https://img.shields.io/badge/donate-gratipay-green.svg)](https://gratipay.com/etlalchemy/)
 # Installation
 
 ```bash
@@ -100,6 +100,7 @@ from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
                           global_ignored_col_suffixes=['drop_all_columns_that_end_in_this'],\
                           global_renamed_col_suffixes={'date': 'dt'},\ #i.e. "created_date -> created_dt"
+                         )
 target = ETLAlchemyTarget(conn_string="postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
 target.addSource(source)
 target.migrate()
@@ -139,10 +140,9 @@ This project has [it's origins](http://thelaziestprogrammer.com/migrating-betwee
 
 
 # Donations
-[Donations are welcome](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA), but **Pull Requests** are better!
+[Donations through Gratipay](https://gratipay.com/etlalchemy/) are welcome, but **Pull Requests** are better!
 
-_We are working on getting a [Gratipay](https://gratipay.com/etlalchemy/) project approved, which would allow recurring donations to help fund our team!_
-
+You can also support us [via PayPal here.](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=DH544PY7RFSLA)
 
 # Other
 
