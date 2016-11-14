@@ -814,7 +814,7 @@ class ETLAlchemySource():
                 uid = ""
                 row = raw_rows[r]
                 for pk in pks:
-                    uid += str(row[self.current_ordered_table_columns[pk]])
+                    uid += str(row[self.current_ordered_table_columns.index(pk)])
                 if upsertDict.get(uid):
                     with open(data_file_path, "a+") as fp:
                         stmt = T.update()\
