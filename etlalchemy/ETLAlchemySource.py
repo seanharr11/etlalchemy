@@ -647,7 +647,7 @@ class ETLAlchemySource():
                        "--compress "
                        "--local "
                        "--fields-terminated-by=\",\" "
-                       "--fields-enclosed-by=\"'\" "
+                       "--fields-enclosed-by='\"' "
                        "--fields-escaped-by='\\' "
                        # "--columns={3} "
                        "--lines-terminated-by=\"\n\" "
