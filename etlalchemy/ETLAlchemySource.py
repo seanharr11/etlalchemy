@@ -143,10 +143,21 @@ class ETLAlchemySource():
         self.times = {}  # Map Tables to Names...
 
     def get_nearest_power_of_two(self, num):
+        # This is optimized for MySQL: we want to optimize
+        # cache hits by defining our column sizes as small
+        # as possible, to the nearest power of 2.
         i = 2
-        while i < num:
-            i *= 2
-        return i - 1
+        if num < 256:
+            # Disk space is L + 1 byte for length (1 - 255)
+            while (i-1) < num:
+                i *= 2
+            return i - 1
+        else:
+            # Disk space is L + 2 bytes for length (256 - 65536)
+            while (i-2) < num:
+                i *= 2
+            return i - 2
+
 
     def standardize_column_type(self, column, raw_rows):
         old_column_class = column.type.__class__
