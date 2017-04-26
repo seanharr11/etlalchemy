@@ -837,7 +837,7 @@ class ETLAlchemySource():
                                        pks))))\
                                .values(dict(zip(
                                    self.current_ordered_table_columns, row)))
-                        dump_sql_statement(stmt, fp, self.dst_engine, T.name)
+                        dump_to_sql_statement(stmt, fp, self.dst_engine, T.name)
                     del raw_rows[r]
             #################################
             # Insert the remaining rows...
@@ -854,7 +854,7 @@ class ETLAlchemySource():
                     " ({0}) -- Inserting remaining '{0}' rows."
                     .format(str(raw_row_len)))
                 with open(data_file_path, "a+") as fp:
-                    dump_sql_statement(
+                    dump_to_sql_statement(
                         T.insert().values(raw_rows), fp,
                         self.dst_engine, T.name)
         conn.close()
