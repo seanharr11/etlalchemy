@@ -296,7 +296,7 @@ class ETLAlchemySource():
             ####################################
             mantissa_max_digits = 0
             left_hand_max_digits = 0
-            mantissa_max_value = 0
+            mantissa_gt_zero = False
             intCount = 0
             maxDigit = 0
             type_count = {}
@@ -333,8 +333,11 @@ class ETLAlchemySource():
                                               len(mantissa_digits))
                     left_hand_max_digits = max(left_hand_max_digits,
                                                len(left_hand_digits))
-                    mantissa_max_value = max(int(mantissa_digits),
-                                             mantissa_max_value)
+                    # If we have a mantissa greater than zero, we can keep this column as a decimal
+                    if not mantissa_gt_zero and float(mantissa_digits) > 0:
+                        # Short circuit the above 'and' so we don't keep resetting mantissa_gt_zero
+                        mantissa_gt_zero = True
+
                 elif data.__class__.__name__ == 'int':
                     intCount += 1
                     maxDigit = max(data, maxDigit)
@@ -344,7 +347,7 @@ class ETLAlchemySource():
             #self.logger.info("Max Mantissa Digits: {0}".format(str(mantissa_max_digits)))
             #self.logger.info("Max Left Hand Digit: {0}".format(str(left_hand_max_digits)))
             #self.logger.info("Total Left Max Digits: {0}".format(str(max(len(str(maxDigit)), left_hand_max_digits))))
-            if mantissa_max_value > 0:
+            if mantissa_gt_zero:
                 cum_max_left_digits = max(
                     len(str(maxDigit)), (left_hand_max_digits))
                 self.logger.info("Numeric({0}, {1})".format(str(cum_max_left_digits + mantissa_max_digits), str(mantissa_max_digits)))
@@ -362,7 +365,7 @@ class ETLAlchemySource():
                         "Column '" +
                         column.name +
                         "' is a primary key, but is of type 'Decimal'")
-            elif mantissa_max_value == 0:
+            else:
                 self.logger.warning(
                     "Column '" +
                     column.name +
