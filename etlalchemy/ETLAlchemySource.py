@@ -221,20 +221,29 @@ class ETLAlchemySource():
                         row[idx] = row[idx].encode('utf-8', 'ignore')
                     else:
                         row[idx] = row[idx].decode('utf-8', 'ignore').encode('utf-8')
-            if max_data_length > 0:
-                # The column is not empty...
-                column_size = self.get_nearest_power_of_two(max_data_length)
-                column_copy.type = String(column_size)
-                self.logger.info("Converting to -> VARCHAR({0} (maxsize: {1})".format(str(column_size), str(max_data_length)))
-            elif varchar_length > 0:
-                # The column is empty BUT has a predfined size
-                column_size = self.get_nearest_power_of_two(varchar_length)
-                column_copy.type = String(column_size)
-                self.logger.info("Converting to -> VARCHAR({0} (prevsize: {1})".format(str(column_size), str(varchar_length)))
+            if self.compress_varchar:
+                # Let's reduce the "n" in VARCHAR(n) to a power of 2
+                if max_data_length > 0:
+                    # The column is not empty...
+                    column_size = self.get_nearest_power_of_two(max_data_length)
+                    column_copy.type = String(column_size)
+                    self.logger.info("Converting to -> VARCHAR({0}) (max_data_length: {1})".format(str(column_size), str(max_data_length)))
+                elif varchar_length > 0:
+                    # The column is empty BUT has a predfined size
+                    column_size = self.get_nearest_power_of_two(varchar_length)
+                    column_copy.type = String(column_size)
+                    self.logger.info("Converting to -> VARCHAR({0}) (prev varchar size: {1})".format(str(column_size), str(varchar_length)))
+                else:
+                    # The column is empty and has NO predefined size
+                    column_copy.type = Text()
+                    self.logger.info("Converting to Text()")
             else:
-                # The column is empty and has NO predefined size
-                column_copy.type = Text()
-                self.logger.info("Converting to Text()")
+                if varchar_length > 0:
+                    column_copy.type = String(varchar_length)
+                else:
+                    # The column has NO predefined size
+                    column_copy.type = Text()
+                    self.logger.info("Converting to Text()")
         elif "UNICODE" in base_classes:
             #########################################
             # Get the VARCHAR size of the column...
