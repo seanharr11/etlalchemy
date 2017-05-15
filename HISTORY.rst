@@ -3,7 +3,22 @@
 History
 -------
 
-1.7 (2016-08-04)
+1.1.1 (2017-05-15)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**New Features**:
+
+* ``compress_varchar`` parameter added to ETLAlchemySource.__init__() to allow for optional "_minimizing of varchar() columns_". Defaults to ``False``.
+
+**Bug Fixes**:
+
+* Handles huge Decimal values ( > 2^32 ) when determining whether or not to coerce column type to Integer, or leave Decimal.
+
+* Fixed bugs surrounding **Upserting** of rows (when ``drop_database=False``).
+
+* Nearest power of 2 now rounds properly
+
+
+1.0.7 (2016-08-04)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **New Features**:
