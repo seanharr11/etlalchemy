@@ -111,6 +111,7 @@ target.migrate()
    *_(So, FK migrations will be skipped when Target is MSSQL)_
 2. Currently not compatible with Windows
    * Several "os.system()" calls with UNIX-specific utilities
+   * One option for Windows users is installing through the [Windows Subsystem for Linux (WSL)](https://msdn.microsoft.com/en-us/commandline/wsl/install_guide)
 3. If Target DB is in the Azure Cloud (MSSQL), FreeTDS has some compatibility issues which are performance related. This may be noticed when migrating tables with 1,000,000+ rows into a Azure MSSQL Server.
 4. Though the MSSQL 'BULK INSERT' feature is supported in this tool, it is NOT supported on either Azure environments, or AWS MSSQL Server environments (no 'bulkadmin' role allowed). Feel free to test this out on a different MSSQL environment!
 5. Regression tests have not **(yet)** been created due to the unique **(and expensive)** way one must test all of the different database types.
