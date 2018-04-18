@@ -666,7 +666,7 @@ class ETLAlchemySource():
             self.logger.info(
                 "Sending data to target MySQL instance...(Fast [mysqlimport])")
             columns = map(lambda c: "\`{0}\`".format(c), columns)
-            cmd = ("mysqlimport -v -h{0} -u{1} -p{2} "
+            cmd = ("mysqlimport -v -h{0} -u{1} -p'{2}' "
                        "--compress "
                        "--local "
                        "--fields-terminated-by=\",\" "
@@ -1080,7 +1080,7 @@ class ETLAlchemySource():
                 data_file_path = os.getcwd() + "/{0}.sql".format(T.name)
                 if os.path.isfile(data_file_path):
                     os.remove(data_file_path)
-                # Delete the old file if it esists (i.e. if a previous run went
+                # Delete the old file if it exists (i.e. if a previous run went
                 # bad and didn't clean up...)
 
                 dst_meta.reflect(self.dst_engine)
