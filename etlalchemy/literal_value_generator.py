@@ -162,9 +162,10 @@ def dump_to_oracle_insert_statements(fp, engine, table, raw_rows, columns):
     fp.write(''.join(lines))
 
 
-# Supported by [MySQL, Postgresql, sqlite, SQL server (non-Azure) ]
+
 def dump_to_csv(fp, table_name, columns, raw_rows, dialect):
-    lines = []
+    """ Supported by [MySQL, Postgresql, sqlite, SQL server (non-Azure) ] """
+
     separator = ","
     # Determine the separator based on Target DB 
     if dialect.name.lower() in ["sqlite"]:
