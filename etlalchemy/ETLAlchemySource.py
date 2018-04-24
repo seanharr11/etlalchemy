@@ -636,10 +636,9 @@ class ETLAlchemySource():
             password = self.dst_engine.url.password
             db_name = self.dst_engine.url.database
             host = self.dst_engine.url.host
-            self.logger.info(
-                "Sending data to target MySQL instance...(Fast [mysqlimport])")
+            self.logger.info("Sending data to target MySQL instance...(Fast [mysqlimport])")
             columns = map(lambda c: "\`{0}\`".format(c), columns)
-            cmd = ("mysqlimport -v -h{0} -u{1} -p'{2}' "
+            cmd = ("mysqlimport -v -h{0} -u'{1}' -p'{2}' "
                        "--compress "
                        "--local "
                        "--fields-terminated-by=\",\" "
