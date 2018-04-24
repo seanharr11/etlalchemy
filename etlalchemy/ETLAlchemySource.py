@@ -731,52 +731,48 @@ class ETLAlchemySource():
         os.remove(data_file_path)
         self.logger.info("Done")
 
-    """
-      Dumps the data to a file called <table_name>.sql in the CWD.
-      Depending on the DB Target, either a CSV will be generated
-      for optimized BULK IMPORT, or an INSERT query will be generated
-      if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
-   """
 
-    def dump_data(self, T_dst_exists, T, raw_rows, pks, sessionMaker):
-        t_start_load = datetime.now()
-        conn = self.dst_engine.connect()
-        s = sessionMaker(bind=conn)
-        data_file_path = os.getcwd() + "/{0}.sql".format(T.name)
-
+    def dump_data(self, T_dst_exists, T, raw_rows, pks, fp):
+        """
+        Dumps the data to a file called <table_name>.sql in the CWD.
+        Depending on the DB Target, either a CSV will be generated
+        for optimized BULK IMPORT, or an INSERT query will be generated
+        if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
+        """
         if not T_dst_exists:
             # Table "T" DNE in the destination table prior to this entire
             # migration process. We can naively INSERT all rows in the buffer
-            with open(data_file_path, "a+") as fp:
-                if not self.enable_mssql_bulk_insert and\
-                   self.dst_engine.dialect.name.lower() == "mssql":
-                    dump_to_sql_statement(T.insert().values(
-                            map(lambda r:
-                                dict(zip(self.current_ordered_table_columns,
-                                         r)),
-                                raw_rows)
-                            ), fp, self.dst_engine, T.name)
-                elif self.dst_engine.dialect.name.lower() == "oracle":
-                    self.logger.warning(
-                        "** BULK INSERT operation not supported by Oracle. " +
-                        "Expect slow run-time.\nThis utilty should be " +
-                        "run on the target host to descrease network " +
-                        "latency for given this limitation...")
-                    dump_to_oracle_insert_statements(
-                            fp, self.dst_engine,
-                            T.name, raw_rows,
-                            self.current_ordered_table_columns)
-                else:
-                    dump_to_csv(
-                        fp,
-                        T.name,
-                        self.current_ordered_table_columns,
-                        raw_rows,
-                        self.dst_engine.dialect)
+            if not self.enable_mssql_bulk_insert and\
+               self.dst_engine.dialect.name.lower() == "mssql":
+                dump_to_sql_statement(T.insert().values(
+                        map(lambda r:
+                            dict(zip(self.current_ordered_table_columns,
+                                     r)),
+                            raw_rows)
+                        ), fp, self.dst_engine, T.name)
+            elif self.dst_engine.dialect.name.lower() == "oracle":
+                self.logger.warning(
+                    "** BULK INSERT operation not supported by Oracle. " +
+                    "Expect slow run-time.\nThis utilty should be " +
+                    "run on the target host to descrease network " +
+                    "latency for given this limitation...")
+                dump_to_oracle_insert_statements(
+                        fp, self.dst_engine,
+                        T.name, raw_rows,
+                        self.current_ordered_table_columns)
+            else:
+                dump_to_csv(
+                    fp,
+                    T.name,
+                    self.current_ordered_table_columns,
+                    raw_rows,
+                    self.dst_engine.dialect)
         else:
             ########################################
             # We need to upsert the data...prepare upsertDict...
             ########################################
+            conn = self.dst_engine.connect()
+
             upsertDict = {}
             self.logger.info("Gathering unique columns for upsert.")
             if len(pks) == 0:
@@ -811,17 +807,16 @@ class ETLAlchemySource():
                 for pk in pks:
                     uid += str(row[self.current_ordered_table_columns.index(pk)])
                 if upsertDict.get(uid):
-                    with open(data_file_path, "a+") as fp:
-                        stmt = T.update()\
-                               .where(and_(*tuple(
-                                   map(lambda pk:
-                                       T.columns[pk] ==
-                                       row[self.current_ordered_table_columns
-                                           .index(pk)],
-                                       pks))))\
-                               .values(dict(zip(
-                                   self.current_ordered_table_columns, row)))
-                        dump_to_sql_statement(stmt, fp, self.dst_engine, T.name)
+                    stmt = T.update()\
+                           .where(and_(*tuple(
+                               map(lambda pk:
+                                   T.columns[pk] ==
+                                   row[self.current_ordered_table_columns
+                                       .index(pk)],
+                                   pks))))\
+                           .values(dict(zip(
+                               self.current_ordered_table_columns, row)))
+                    dump_to_sql_statement(stmt, fp, self.dst_engine, T.name)
                     del raw_rows[r]
             #################################
             # Insert the remaining rows...
@@ -837,11 +832,11 @@ class ETLAlchemySource():
                 self.logger.info(
                     " ({0}) -- Inserting remaining '{0}' rows."
                     .format(str(raw_row_len)))
-                with open(data_file_path, "a+") as fp:
-                    dump_to_sql_statement(
-                        T.insert().values(raw_rows), fp,
-                        self.dst_engine, T.name)
-        conn.close()
+                dump_to_sql_statement(
+                    T.insert().values(raw_rows), fp,
+                    self.dst_engine, T.name)
+            conn.close()
+
     # TODO: Have a 'Create' option for each table...
 
     def migrate(self, destination_database_url, migrate_data=True, migrate_schema=True):
@@ -871,7 +866,6 @@ class ETLAlchemySource():
             raise DBApiNotFound(destination_database_url)
         dst_meta = MetaData()
 
-        Session = sessionmaker(bind=self.dst_engine)
         dst_meta.bind = self.dst_engine
 
         self.tgt_insp = reflection.Inspector.from_engine(self.dst_engine)
@@ -1015,14 +1009,9 @@ class ETLAlchemySource():
                     if not tableCreationSuccess:
                         continue
 
-
-
                 #
                 # PASS TWO - Write source data to file
                 #
-
-                #from pudb import set_trace;set_trace()
-
                 """"""""""""""""""""""""""""""
                 """" *** INSERT ROWS *** """""
                 """"""""""""""""""""""""""""""
@@ -1048,7 +1037,8 @@ class ETLAlchemySource():
                         # Todo: What does transform_data() do, and could it do it while dumping the data?
                         ## self.logger.info(" ({0}) -- Transforming rows: ".format(T.name) + str(virtualStartRow) + " -> " + str(virtualEndRow) + "...({0} Total)".format(str(raw_row_len)))
                         ## self.transform_data(T_src, raw_rows[startRow:endRow])
-                        self.dump_data(T_dst_exists, T, [row], pks, Session)
+                        with open(data_file_path, "a+") as fp:
+                            self.dump_data(T_dst_exists, T, [row], pks, fp)
 
 
                     #######################################################
