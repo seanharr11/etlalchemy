@@ -976,7 +976,11 @@ class ETLAlchemySource():
                     ##############################
                     # Standardize Column Type
                     ##############################
-                    distinct_column_rows = self.engine.execute(select([column]).distinct())
+
+                    if column.type.__class__.__name__ in ('CLOB', 'BLOB'):
+                        distinct_column_rows = self.engine.execute(select([column]).order_by(func.length(column).desc()).limit(1))
+                    else:
+                        distinct_column_rows = self.engine.execute(select([column]).distinct())
                     column_copy = self.standardize_column_type(column, distinct_column_rows)
                     """"""""""""""""""""""""""""""
                     """ *** ELIMINATION I *** """
