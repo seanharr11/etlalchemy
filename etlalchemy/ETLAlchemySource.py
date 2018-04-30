@@ -578,12 +578,12 @@ class ETLAlchemySource():
                 return True
                 # We need to Upsert the data...
 
-    def send_data(self, table, columns):
+    def send_data(self, T_dst_exists, table_name, columns):
         Session = sessionmaker(bind=self.dst_engine)
         session = Session()
-        data_file_path = os.getcwd() + "/" + table + ".sql"
+        data_file_path = os.getcwd() + "/" + table_name + ".sql"
 
-        self.logger.info("Transferring data from local file '{0}' to target DB".format(table + ".sql"))
+        self.logger.info("Transferring data from local file '{0}' to target DB".format(table_name + ".sql"))
         if self.dst_engine.dialect.name.lower() == "mssql":
             username = self.dst_engine.url.username
             password = self.dst_engine.url.password
@@ -611,7 +611,7 @@ class ETLAlchemySource():
                     conn.execute("""BULK INSERT {0} FROM '{1}' WITH (
                                      fieldterminator = '|,',
                                      rowterminator = '\n'
-                                   );""".format(data_file_path, table))
+                                   );""".format(data_file_path, table_name))
                     t1.commit()
                 except sqlalchemy.exc.ProgrammingError as e:
                     self.logger.critical("""
@@ -637,7 +637,13 @@ class ETLAlchemySource():
             db_name = self.dst_engine.url.database
             host = self.dst_engine.url.host
             self.logger.info("Sending data to target MySQL instance...(Fast [mysqlimport])")
-            columns = map(lambda c: "\`{0}\`".format(c), columns)
+            # columns = map(lambda c: "\`{0}\`".format(c), columns)
+
+            if T_dst_exists:
+                replace_parameter = '--replace'
+            else:
+                replace_parameter = ''
+
             cmd = ("mysqlimport -v -h{0} -u'{1}' -p'{2}' "
                        "--compress "
                        "--local "
@@ -646,11 +652,15 @@ class ETLAlchemySource():
                        "--fields-escaped-by='\\' "
                        # "--columns={3} "
                        "--lines-terminated-by=\"\n\" "
+                       "{5} "
                        "{3} {4}"
-                      ).format(host, username, password,
-                                       #",".join(columns), db_name,
-                                       db_name,
-                                       data_file_path)
+                      ).format(host,
+                               username,
+                               password,
+                               #",".join(columns), db_name,
+                               db_name,
+                               data_file_path,
+                               replace_parameter)
             self.logger.info(cmd)
             os.system(cmd)
             self.logger.info("Done.")
@@ -677,7 +687,7 @@ class ETLAlchemySource():
             cmd = """COPY {0} ({1}) FROM '{2}'
                     WITH CSV QUOTE ''''
                     ESCAPE '\\' """.format(
-                table, ",".join(columns), data_file_path, "'")
+                table_name, ",".join(columns), data_file_path, "'")
             self.logger.info(
                 "Sending data to target Postgresql instance..." +
                 "(Fast [COPY ... FROM ... WITH CSV]):" +
@@ -690,7 +700,7 @@ class ETLAlchemySource():
                 quote = "\'"
                 #escape = '/'
                 copy_from_stmt = "COPY \"{0}\" FROM STDIN WITH CSV NULL '{1}'"\
-                    .format(table, null_value, quote, delimiter)
+                    .format(table_name, null_value, quote, delimiter)
                 cur.copy_expert(copy_from_stmt, fp_psql)
                               #columns=tuple(map(lambda c: '"'+str(c)+'"', columns)))
             conn.commit()
@@ -701,7 +711,7 @@ class ETLAlchemySource():
             db_name = self.dst_engine.url.database
             self.logger.info(
                 "Sending data to target sqlite instance...(Fast [.import])")
-            sqlite_cmd = ".separator \'|\'\\n.nullvalue NULL\\n.import {0} {1}".format(data_file_path, table)
+            sqlite_cmd = ".separator \'|\'\\n.nullvalue NULL\\n.import {0} {1}".format(data_file_path, table_name)
             self.logger.info(sqlite_cmd)
             os.system("echo \"{0}\" | sqlite3 {1}"
                     .format(sqlite_cmd, db_name))
@@ -739,7 +749,7 @@ class ETLAlchemySource():
         for optimized BULK IMPORT, or an INSERT query will be generated
         if BULK INSERTING a CSV is not supported (i.e. SQL Azure)
         """
-        if not T_dst_exists:
+        if not T_dst_exists or self.dst_engine.dialect.name.lower() == "mysql":
             # Table "T" DNE in the destination table prior to this entire
             # migration process. We can naively INSERT all rows in the buffer
             if not self.enable_mssql_bulk_insert and\
@@ -1035,7 +1045,8 @@ class ETLAlchemySource():
 
                 if migrate_data and cnt > 0:
 
-                    self.logger.info("Transforming & Dumping %i from table '%s' into '%s'.", cnt, T.name, data_file_path)
+                    self.logger.info("Transforming & Dumping %i rows from table '%s' into '%s'.",
+                                     cnt, T.name, data_file_path)
 
                     for row in self.engine.execute(T_src.select()):
                         # Todo: What does transform_data() do, and could it do it while dumping the data?
@@ -1050,7 +1061,7 @@ class ETLAlchemySource():
                     #######################################################
                     t_start_load = datetime.now()
                     # From <table_name>.sql
-                    self.send_data(T.name, self.current_ordered_table_columns)
+                    self.send_data(T_dst_exists, T.name, self.current_ordered_table_columns)
 
                 t_stop_load = datetime.now()
 
