@@ -737,7 +737,7 @@ class ETLAlchemySource():
         else:
             raise Exception("Not Implemented!")
         # Cleanup...
-        self.logger.info("Cleaning up '{0}'.sql".format(table))
+        self.logger.info("Cleaning up '{0}'.sql".format(table_name))
         os.remove(data_file_path)
         self.logger.info("Done")
 
