@@ -637,7 +637,7 @@ class ETLAlchemySource():
             db_name = self.dst_engine.url.database
             host = self.dst_engine.url.host
             self.logger.info("Sending data to target MySQL instance...(Fast [mysqlimport])")
-            # columns = map(lambda c: "\`{0}\`".format(c), columns)
+            columns = map(lambda c: "\`{0}\`".format(c), columns)
 
             if T_dst_exists:
                 replace_parameter = '--replace'
@@ -650,14 +650,14 @@ class ETLAlchemySource():
                        "--fields-terminated-by=\",\" "
                        "--fields-enclosed-by='\"' "
                        "--fields-escaped-by='\\' "
-                       # "--columns={3} "
+                       "--columns={3} "
                        "--lines-terminated-by=\"\n\" "
-                       "{5} "
-                       "{3} {4}"
+                       "{6} "
+                       "{4} {5}"
                       ).format(host,
                                username,
                                password,
-                               #",".join(columns), db_name,
+                               ",".join(columns),
                                db_name,
                                data_file_path,
                                replace_parameter)
