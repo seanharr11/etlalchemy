@@ -15,7 +15,7 @@ def _generate_literal_value_for_csv(value, dialect):
             # No support for 'quote' enclosed strings
             return "%s" % value
         else:
-            value = value.replace('"', '""')
+            value = value.replace('"', '""').replace('\\','\\\\')
             return "\"%s\"" % value
     elif value is None:
         return "NULL"
