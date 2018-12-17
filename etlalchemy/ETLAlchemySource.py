@@ -1206,9 +1206,9 @@ class ETLAlchemySource():
                 .get(table_name)
             column_transformer = self.schema_transformer.column_transformations\
                 .get(table_name)
-            if table_transform and table_transform.newTable not in ["", None]:
+            if table_transform and table_transform.new_table not in ["", None]:
                 # Update the table_name
-                table_name = table_transform.newTable
+                table_name = table_transform.new_table
             this_idx_count = 0
             self.logger.info("Creating indexes for '" + table_name + "'...")
             for i in indexes:
@@ -1383,9 +1383,9 @@ class ETLAlchemySource():
             ####################################
             table_transform = self.schema_transformer.table_transformations.get(
                 table_name)
-            if table_transform and table_transform.newTable not in ["", None]:
+            if table_transform and table_transform.new_table not in ["", None]:
                 # Update the table_name
-                table_name = table_transform.newTable
+                table_name = table_transform.new_table
             self.logger.info(
                 "Adding FKs to table '{0}' (previously {1})".format(
                     table_name, pre_transformed_table_name))
@@ -1456,10 +1456,10 @@ class ETLAlchemySource():
                 ref_column_transformer = \
                     self.schema_transformer.column_transformations.get(
                                   ref_table)
-                if table_transform and table_transform.newTable not in [
+                if table_transform and table_transform.new_table not in [
                         "", None]:
                     # Update the table_name
-                    ref_table = table_transform.newTable
+                    ref_table = table_transform.new_table
                 T_ref = Table(ref_table, dst_meta)
                 ############################
                 # Check that referenced table
