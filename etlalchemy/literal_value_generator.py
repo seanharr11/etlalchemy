@@ -1,6 +1,7 @@
 import shutil
 import decimal
 import datetime
+
 # Find the best implementation available on this platform
 try:
     from cStringIO import StringIO

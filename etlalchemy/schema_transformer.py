@@ -81,7 +81,7 @@ class SchemaTransformer():
     
     # Returns False if deleted...
     def transform_table(self, table):
-        thisTableTT = self.table_transformations.get(table.name.lower())
+        thisTableTT = self.table_transformations.get(table.name)
         # Update table name
         if thisTableTT:
             if thisTableTT.delete:

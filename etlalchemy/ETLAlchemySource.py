@@ -21,7 +21,7 @@ from sqlalchemy.engine import reflection
 from sqlalchemy.inspection import inspect
 from sqlalchemy.exc import NoSuchTableError
 from sqlalchemy.types import Text, Numeric, BigInteger, Integer, DateTime, Date, TIMESTAMP, String, BINARY, LargeBinary
-from sqlalchemy.dialects.postgresql import BYTEA
+from sqlalchemy.dialects.postgresql import BYTEA, UUID
 import inspect as ins
 import re
 import csv
@@ -50,7 +50,8 @@ class ETLAlchemySource():
                  skip_table_if_empty=False,
                  skip_column_if_empty=False,
                  compress_varchar=False,
-                 log_file=None):
+                 log_file=None,
+                 per_table_buffers={}):
         # TODO: Store unique columns in here, and ADD the unique constraints
         # after data has been migrated, rather than before
         self.unique_columns = []
@@ -59,6 +60,9 @@ class ETLAlchemySource():
         self.logger = logging.getLogger("ETLAlchemySource")
         self.logger.propagate = False
         
+        #Allow specifying of buffer size on a per-table basis when fetching rows from the source
+        self.per_table_buffers = per_table_buffers
+
         for h in list(self.logger.handlers):
             # Clean up any old loggers...(useful during testing w/ multiple
             # log_files)
@@ -205,6 +209,16 @@ class ETLAlchemySource():
             # Get the VARCHAR size of the column...
             ########################################
             varchar_length = column.type.length
+            # If varchar_length exceeds the maximum size for our target
+            # database, then convert VARCHAR -> TEXT  
+            if self.dst_engine.dialect.name.lower() == "postgresql":
+                if varchar_length == 'max' or varchar_length > 10485760:
+                    varchar_length = 0
+            elif self.dst_engine.dialect.name.lower() == "mssql":
+                if varchar_length == 'max' or varchar_length > 65532:
+                    # Note: This isn't always the case for mssql!
+                    # If using utf8, the limit is 21844. 
+                    varchar_length = 0
             ##################################
             # Strip collation here ...
             ##################################
@@ -401,6 +415,11 @@ class ETLAlchemySource():
                 "coercing to Boolean'")
             column_copy.type.__class__ = sqlalchemy.types.Boolean
         elif "TYPEENGINE" in base_classes:
+            if self.dst_engine.dialect.name.lower() == "postgresql"\
+                and column.type.__class__.__name__ == "UNIQUEIDENTIFIER":
+                column_copy.type = UUID()
+                self.logger.warning("Found column of type 'UNIQUEIDENTIFIER' -> " +
+                    "coercing to 'UUID'")
             for r in raw_rows:
                 if r[idx] is not None:
                     null = False
@@ -1004,6 +1023,9 @@ class ETLAlchemySource():
                 j = 0
                 self.logger.info("Loading all rows into memory...")
                 rows = []
+
+                if T_src.name in self.per_table_buffers:
+                    buffer_size = self.per_table_buffers.get(T_src.name)
 
                 for i in range(1, (cnt / buffer_size) + 1):
                     self.logger.info(

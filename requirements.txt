@@ -11,4 +11,4 @@ py==1.4.31
 six==1.9.0
 SQLAlchemy==1.0.13
 sqlalchemy-migrate==0.9.7
-SQLAlchemy-Utils==0.30.9
+SQLAlchemy-Utils==0.33.6
