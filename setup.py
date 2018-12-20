@@ -1,4 +1,22 @@
-from distutils.core import setup
+import sys
+
+from setuptools import setup
+from setuptools.command.test import test as TestCommand
+
+class PyTest(TestCommand):
+    user_options = [('pytest-args=', 'a', "Arguments to pass into pytest")]
+
+    def initialize_options(self):
+        TestCommand.initialize_options(self)
+        self.pytest_args = ""
+
+    def run_tests(self):
+        import pytest
+        import shlex
+
+        errno = pytest.main(shlex.split(self.pytest_args))
+        sys.exit(errno)
+
 setup(
         name = 'etlalchemy',
         packages = ['etlalchemy'],
@@ -10,11 +28,12 @@ setup(
         download_url='https://github.com/seanharr11/etlalchemy/tarball/1.0.6',
         keywords=['sql','migration','etl','database'],
         install_requires = [
-            "py == 1.4.31",
-            "six == 1.9.0",
-            "SQLAlchemy == 1.0.13",
-            "sqlalchemy-migrate == 0.9.7",
-            "SQLAlchemy-Utils == 0.30.9"
+            "six>=1.9.0",
+            "SQLAlchemy>=1.2.1,<1.3",
+            "sqlalchemy-migrate>=0.9.7",
+            "SQLAlchemy-Utils>=0.32.0"
         ],
         classifiers=[],
+        cmdclass={'test': PyTest},
+        tests_require = ["pytest"],
 )
