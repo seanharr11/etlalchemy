@@ -38,7 +38,19 @@ def setup_table_transform_file(tmpdir, data=[]):
     assert f.read() == file_data_str
     return str(f) # filename
 
+def get_unique_tables(data):
+    """Returns unique tables in data using 'Table Name' column in header row"""
+    hdrs = data[0]
+    tbl_idx = None
+    for idx, hdr in enumerate(hdrs):
+        if hdr == "Table Name":
+            tbl_idx = idx
+            break
+    assert tbl_idx is not None
+    return set([c[tbl_idx] for c in [row for row in data[1:]]])
+
 def mock_dictreader(headers, data):
+    """Simulate the behavior of csv dictreader so we don't need files"""
     return dict(zip(headers, data))
 
 
@@ -92,7 +104,7 @@ def test_column_transformation_rename():
     assert c.new_type == ''
     assert c.delete == False
 
-    row['New Column Name']=''
+    row['New Column Name'] = '' # Make sure not renaming also works
     c = SchemaTransformer.ColumnTransformation(row)
     assert c
     assert c.old_column == 'birth_date'
@@ -169,31 +181,32 @@ def test_init_column_transform_file_empty(tmpdir):
 
 def test_init_column_transform_file(tmpdir):
     col_map = setup_column_transform_file(tmpdir, data=col_sample_data)
+    unique_tables = get_unique_tables(col_sample_data)
     trans = SchemaTransformer(column_transform_file=col_map,
             table_transform_file=None)
     assert trans is not None
     assert len(trans.table_transformations) == 0
     assert len(trans.column_transformations) > 0
-    # Get unique tables from sample data, slice out the header row
-    unique_tables = set([c[1] for c in [row for row in col_sample_data[1:]]])
     assert len(trans.column_transformations) == len(unique_tables)
+    # Make sure the expected tables are in the list of transformations
+    assert set(unique_tables) == set(trans.column_transformations.keys())
 
 def test_init_table_transform_file(tmpdir):
     tbl_map = setup_table_transform_file(tmpdir, data=tbl_sample_data)
+    unique_tables = get_unique_tables(tbl_sample_data)
     trans = SchemaTransformer(column_transform_file=None,
             table_transform_file=tbl_map)
     assert trans is not None
     assert len(trans.column_transformations) == 0
-    # Get unique tables from sample data, slice out the header row
-    unique_tables = set([t[0] for t in [row for row in tbl_sample_data[1:]]])
     assert len(trans.table_transformations) == len(unique_tables)
+    # Make sure the expected tables are in the list of transformations
+    assert set(unique_tables) == set(trans.table_transformations.keys())
 
 def test_schedule_deletion_of_column(tmpdir):
     col_map = setup_column_transform_file(tmpdir, data=col_sample_data)
     trans = SchemaTransformer(column_transform_file=col_map,
             table_transform_file=None)
-    # Get unique tables from sample data, slice out the header row
-    unique_tables = set([c[1] for c in [row for row in col_sample_data[1:]]])
+    unique_tables = get_unique_tables(col_sample_data)
     total_tables = len(unique_tables)
 
     ### Remove a column in new table (compared to sample data)
@@ -205,6 +218,8 @@ def test_schedule_deletion_of_column(tmpdir):
     # Confirm list has been added to
     total_tables += 1
     assert len(trans.column_transformations) == total_tables
+    # Dept was added, so make sure the list of tables differs
+    assert set(unique_tables) != set(trans.column_transformations.keys())
 
     ### Remove a column known in a different table
     trans.schedule_deletion_of_column('birth_date', 'bosses')
