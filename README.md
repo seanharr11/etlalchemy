@@ -15,11 +15,10 @@ pip install etlalchemy
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
-mssql_db_source = ETLAlchemySource("mssql+pyodbc://username:password@DSN_NAME")
-
-mysql_db_target = ETLAlchemyTarget("mysql://username:password@hostname/db_name", drop_database=True)
-mysql_db_target.addSource(mssql_db_source)
-mysql_db_target.migrate()
+source = ETLAlchemySource("mssql+pyodbc://username:password@DSN_NAME")
+target = ETLAlchemyTarget("mysql://username:password@hostname/db_name", drop_database=True)
+target.addSource(source)
+target.migrate()
 ````
 
 # Examples
@@ -28,14 +27,14 @@ mysql_db_target.migrate()
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
-# Load ALL tables EXCEPT 'salaries'
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
-                          excluded_tables=["salaries"])
-# Conversely, you could load ONLY the 'salaries' table
-"""source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
-                          included_tables=["salaries"])"""
+# Load ONLY the 'salaries' table
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees",
+                          included_tables=["salaries"])
+# Conversely, you could load ALL tables EXCEPT 'salaries'
+# source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees",\
+#                          excluded_tables=["salaries"])
 
-target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
+target = ETLAlchemyTarget("postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
 target.addSource(source)
 target.migrate()
 ```
@@ -43,11 +42,11 @@ target.migrate()
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees")
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees")
 
-target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
+target = ETLAlchemyTarget("postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
 target.addSource(source)
-# Note that each phase (schema, data, index, fk) is independent of all others, 
+# Note that each phase (schema, data, index, fk) is independent of all others,
 # and can be run standalone, or in any combination. (Obviously you need a schema to send data, etc...)
 target.migrate(migrate_fks=False, migrate_indexes=False, migrate_data=False, migrate_schema=True)
 ```
@@ -56,10 +55,10 @@ target.migrate(migrate_fks=False, migrate_indexes=False, migrate_data=False, mig
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # This will skip tables with no rows (or all empty rows), and ignore them during schema migration
 # This will skip columns if they have all NULL values, and ignore them during schema migration
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees",\
                           skip_column_if_empty=True,\
                           skip_table_if_empty=True)
-target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
+target = ETLAlchemyTarget("postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=True)
 target.addSource(source)
 target.migrate()
 ```
@@ -67,11 +66,11 @@ target.migrate()
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees")
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees")
 # This will leave the target DB as is, and if the tables being migrated from Source -> Target
 # already exist on the Target, then rows will be updated based on PKs if they exist, or 
 # inserted if they DNE on the Target table.
-target = ETLAlchemyTarget(conn_string="postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=False)
+target = ETLAlchemyTarget("postgresql://etlalchemy:etlalchemy@localhost/test", drop_database=False)
 target.addSource(source)
 target.migrate()
 ```
@@ -79,10 +78,10 @@ target.migrate()
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # See below for the simple structure of the .csv's for schema changes
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees",\
                           column_schema_transformation_file=os.getcwd() + "/transformations/column_mappings.csv",\
                           table_schema_transformation_file=os.getcwd() + "/transformations/table_mappings.csv")
-target = ETLAlchemyTarget(conn_string="postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
+target = ETLAlchemyTarget("postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
 target.addSource(source)
 target.migrate()
 ```
@@ -97,11 +96,11 @@ target.migrate()
 ```python
 from etlalchemy import ETLAlchemySource, ETLAlchemyTarget
 # global_renamed_col_suffixes is useful to standardize column names across tables (like the date example below)
-source = ETLAlchemySource(conn_string="mysql://etlalchemy:etlalchemy@localhost/employees",\
+source = ETLAlchemySource("mysql://etlalchemy:etlalchemy@localhost/employees",\
                           global_ignored_col_suffixes=['drop_all_columns_that_end_in_this'],\
                           global_renamed_col_suffixes={'date': 'dt'},\ #i.e. "created_date -> created_dt"
                          )
-target = ETLAlchemyTarget(conn_string="postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
+target = ETLAlchemyTarget("postgresql://SeanH:Pats15Ball@localhost/test", drop_database=True)
 target.addSource(source)
 target.migrate()
 ```
@@ -136,7 +135,7 @@ target.migrate()
 # Contributors
 We are always looking for contributors! 
 
-This project has [it's origins](http://thelaziestprogrammer.com/migrating-between-databases-with-etlalchemy) in solving the problem of migrating off of bulky, expensive enterprise-level databases. If the project has helped you to migrate off of these databases, and onto open-source RDBMS's, the best way to show your support is by opening Pull Requests and Issues.
+This project has [its origins](http://thelaziestprogrammer.com/migrating-between-databases-with-etlalchemy) in solving the problem of migrating off of bulky, expensive enterprise-level databases. If the project has helped you to migrate off of these databases, and onto open-source RDBMS's, the best way to show your support is by opening Pull Requests and Issues.
 
 
 
