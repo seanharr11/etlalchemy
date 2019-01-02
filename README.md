@@ -9,6 +9,10 @@ Extract, Transform and Load...Migrate any SQL Database in 4 Lines of Code. *[Rea
 pip install etlalchemy
 # On El Capitan:
 ### pip install --ignore-installed etlalchemy
+
+# Also install the necessary DBAPI modules and SQLAlchemy dialects
+# For example, for MySQL, you might use:
+# pip install pymsql
 ```
 
 # Basic Usage
