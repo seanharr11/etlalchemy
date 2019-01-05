@@ -1,0 +1,19 @@
+*.pyc
+
+# coverage files
+*.coverage
+htmlcov
+cover
+
+# temporary files
+*~
+
+# virtual environments
+env*/
+venv/
+
+# python setup.py build artifacts
+build/
+dist/
+*egg*/
+docs/_build
